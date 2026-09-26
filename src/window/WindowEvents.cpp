@@ -5,6 +5,7 @@
 #include "ui/Dpi.h"
 #include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <windowsx.h>
 
 namespace ui {
@@ -315,8 +316,15 @@ LRESULT WindowController::handleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
     case WM_APP_CHECKIN_DONE: {
         checkinRunning_ = false;
         int result = static_cast<int>(static_cast<INT_PTR>(wp));
-        if (result >= 0)
-            lastAutoCheckinDay_.store(static_cast<long long>(time(nullptr)) / 86400);
+        if (result >= 0) {
+            time_t now = time(nullptr);
+            struct tm local{};
+            if (localtime_s(&local, &now) == 0) {
+                const long long today = (local.tm_year + 1900LL) * 10000 +
+                                       (local.tm_mon + 1) * 100 + local.tm_mday;
+                lastAutoCheckinDay_.store(today);
+            }
+        }
         setControlText(GetDlgItem(pageStatus_, IDC_BTN_CHECKIN),
                        result > 0 ? L"今日已签到" : result == 0 ? L"签到完成" : L"签到失败，重试");
         InvalidateRect(GetDlgItem(pageStatus_, IDC_BTN_CHECKIN), nullptr, FALSE);

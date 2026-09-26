@@ -19,10 +19,12 @@ void WindowController::restoreCreditsButton(HWND hwnd) {
 void WindowController::tickAutoCheckin(HWND hwnd) {
     auto& cfg = Config::instance();
     time_t now = time(nullptr);
-    time_t today = now / 86400;
     if (cfg.checkinEnabled) {
         struct tm local{};
-        localtime_s(&local, &now);
+        if (localtime_s(&local, &now) != 0) return;
+        // 日期与签到时刻统一使用本地时间，避免 UTC 换日在北京时间 08:00 才发生。
+        const long long today = (local.tm_year + 1900LL) * 10000 +
+                               (local.tm_mon + 1) * 100 + local.tm_mday;
         int nowMin = local.tm_hour * 60 + local.tm_min;
         int targetMin = cfg.checkinHour * 60 + cfg.checkinMinute;
         if (nowMin >= targetMin && lastAutoCheckinDay_.load() != today &&
