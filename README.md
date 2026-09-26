@@ -1,6 +1,6 @@
 ﻿# Trae Relay
 
-当前版本：`0.11`
+当前版本：`0.12`
 
 Windows 原生的 Trae 本地 API 转接工具，将当前用户已登录的 Trae 账号提供为 OpenAI 兼容接口。单个 EXE 即可运行，无需 Python、Node.js 或 Docker。
 
