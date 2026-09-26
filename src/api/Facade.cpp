@@ -431,7 +431,7 @@ static void handleChatCompletions(const HttpRequest& req, HttpResponseWriter& w)
         return head;
     };
 
-    // 汇总（非流式/最终帧需要）
+    // 正文和思考全文仅供非流式响应使用；工具状态也用于流式结束原因。
     std::string allText, allReason;
     ToolAccumulator finalTools;
 
@@ -487,11 +487,11 @@ static void handleChatCompletions(const HttpRequest& req, HttpResponseWriter& w)
             if (e.type == UpEvent::Text) {
                 std::string vis = stopF.feed(e.text);
                 if (vis.empty()) return true; // stop 命中或尾巴扣住：本帧无可放出文本
-                allText += vis;
+                if (!clientWantsStream) allText += vis;
                 return emitTextDelta(vis);
             }
             if (e.type == UpEvent::Reason) {
-                allReason += e.text;
+                if (!clientWantsStream) allReason += e.text;
                 if (!clientWantsStream) return true;
                 Json head = makeChunkHead();
                 Json ch = Json::array();
@@ -510,7 +510,7 @@ static void handleChatCompletions(const HttpRequest& req, HttpResponseWriter& w)
                 // 先放出被扣住的正文尾巴，保持"正文先于其后的工具调用"顺序
                 std::string tail = stopF.flush();
                 if (!tail.empty()) {
-                    allText += tail;
+                    if (!clientWantsStream) allText += tail;
                     if (!emitTextDelta(tail)) return false;
                 }
                 // 上游 done 时按完整调用下发事件（一次一个完整调用）
@@ -547,7 +547,7 @@ static void handleChatCompletions(const HttpRequest& req, HttpResponseWriter& w)
     if (r.ok || r.clientAborted) {
         std::string tail = stopF.flush();
         if (!tail.empty()) {
-            allText += tail;
+            if (!clientWantsStream) allText += tail;
             if (!emitTextDelta(tail)) r.clientAborted = true;
         }
     }
