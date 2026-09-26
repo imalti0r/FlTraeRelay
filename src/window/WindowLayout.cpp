@@ -63,6 +63,45 @@ void WindowController::createPages(HWND hwnd) {
     applyControlFonts(hwnd);
 }
 
+void WindowController::createUi(HWND hwnd) {
+    if (uiCreated_ || snapshotMode_) return;
+    rebuildFonts(hwnd);
+    createNavControls(hwnd);
+    createPages(hwnd);
+    layoutAll(hwnd);
+    setPage(activePage_);
+    refreshStatusPage(hwnd);
+    uiCreated_ = true;
+}
+
+void WindowController::destroyUi() {
+    if (!uiCreated_) return;
+    KillTimer(hwnd_, kTimerSavedHint);
+    KillTimer(hwnd_, kTimerCreditsHint);
+    KillTimer(hwnd_, kTimerApiKeyHint);
+    if (endpointTooltips_) {
+        DestroyWindow(endpointTooltips_);
+        endpointTooltips_ = nullptr;
+    }
+    if (pageStatus_) DestroyWindow(pageStatus_);
+    if (pageSettings_) DestroyWindow(pageSettings_);
+    if (pageUsage_) DestroyWindow(pageUsage_);
+    if (navStatus_) DestroyWindow(navStatus_);
+    if (navUsage_) DestroyWindow(navUsage_);
+    if (navSettings_) DestroyWindow(navSettings_);
+    pageStatus_ = pageSettings_ = pageUsage_ = nullptr;
+    navStatus_ = navUsage_ = navSettings_ = nullptr;
+    usageRows_.clear();
+    modelCatalogNames_.clear();
+    modelCatalogCaps_.clear();
+    previousCard_ = {};
+    previousCardWindow_ = nullptr;
+    catalogVersion_ = -1;
+    releaseDrawingCache();
+    deleteFonts();
+    uiCreated_ = false;
+}
+
 void WindowController::setPage(int page) {
     if (activePage_ == page && (GetWindowLongPtrW(pageHwnd(page), GWL_STYLE) & WS_VISIBLE))
         return;

@@ -8,7 +8,6 @@ using namespace visual;
 
 WindowController::WindowController()
     : brCanvas_(CreateSolidBrush(C_CANVAS)), brSurface_(CreateSolidBrush(C_SURFACE)) {
-    initializeDrawing();
 }
 
 WindowController::~WindowController() {
@@ -111,6 +110,7 @@ void WindowController::registerClasses() {
 }
 
 int WindowController::runGui(bool startMinimized) {
+    startMinimized_ = startMinimized;
     INITCOMMONCONTROLSEX controls{ sizeof(controls), ICC_STANDARD_CLASSES };
     InitCommonControlsEx(&controls);
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);

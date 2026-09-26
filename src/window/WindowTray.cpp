@@ -68,7 +68,8 @@ void WindowController::showTrayMenu(HWND hwnd) {
             MessageBoxA(hwnd, error.c_str(), "错误", MB_ICONERROR);
         }
         setChecked(IDC_CHK_AUTOSTART, autostart::isEnabled());
-        InvalidateRect(GetDlgItem(pageSettings_, IDC_CHK_AUTOSTART), nullptr, FALSE);
+        if (uiCreated_)
+            InvalidateRect(GetDlgItem(pageSettings_, IDC_CHK_AUTOSTART), nullptr, FALSE);
         break;
     }
     case 4: {
@@ -76,7 +77,8 @@ void WindowController::showTrayMenu(HWND hwnd) {
         std::string error;
         cfg.save(error);
         setChecked(IDC_CHK_MINCLOSE, cfg.minimizeToTrayOnClose);
-        InvalidateRect(GetDlgItem(pageSettings_, IDC_CHK_MINCLOSE), nullptr, FALSE);
+        if (uiCreated_)
+            InvalidateRect(GetDlgItem(pageSettings_, IDC_CHK_MINCLOSE), nullptr, FALSE);
         break;
     }
     case 9:

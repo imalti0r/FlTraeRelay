@@ -28,6 +28,8 @@ private:
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
     static LRESULT CALLBACK pageProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
     bool snapshotMode_ = false;
+    bool startMinimized_ = false;
+    bool uiCreated_ = false;
     
     HWND hwnd_ = nullptr;
     HWND pageStatus_ = nullptr;
@@ -105,6 +107,8 @@ private:
     void layoutAll(HWND hwnd);
     void createNavControls(HWND hwnd);
     void createPages(HWND hwnd);
+    void createUi(HWND hwnd);
+    void destroyUi();
     void setPage(int page);
     void paintStatusPage(visual::Canvas& dc, int width, int);
     void layoutStatusPage();

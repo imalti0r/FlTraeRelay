@@ -101,20 +101,16 @@ LRESULT WindowController::handleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
         // 服务/定时器/网络线程一概不起。
         if (snapshotMode_) return 0;
         configureTitleBar(hwnd);
-        rebuildFonts(hwnd);
-        createNavControls(hwnd);
-        createPages(hwnd);
-        layoutAll(hwnd);
-        setPage(PAGE_STATUS);   // 显式初始化活动页，防止启动时落到其他页
-        refreshStatusPage(hwnd);
         SetTimer(hwnd, kTimerSecond, 1000, nullptr);
         // 程序开启即自动启动本地服务，不再提供手动启停入口
         {
             std::string svcError;
             if (!service::start(svcError))
                 MessageBoxA(hwnd, svcError.c_str(), "服务启动失败", MB_ICONERROR);
-            refreshStatusPage(hwnd);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            if (!startMinimized_) {
+                createUi(hwnd);
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
         }
         // 模型目录后台刷新（SWR，不阻塞窗口创建）
         if (!AccountPool::instance().accounts().empty()) {
@@ -143,8 +139,10 @@ LRESULT WindowController::handleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
         SetWindowPos(hwnd, nullptr, suggested->left, suggested->top,
                      suggested->right - suggested->left, suggested->bottom - suggested->top,
                      SWP_NOZORDER | SWP_NOACTIVATE);
-        rebuildFonts(hwnd);
-        layoutAll(hwnd);
+        if (uiCreated_) {
+            rebuildFonts(hwnd);
+            layoutAll(hwnd);
+        }
         RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
         return 0;
     }
@@ -156,8 +154,11 @@ LRESULT WindowController::handleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
         if (pageStatus_) layoutAll(hwnd);
         return 0;
     case WM_SHOWWINDOW:
-        if (!wp) releaseDrawingCache();
-        else statusTick_ = 0; // 恢复后下一次定时器立即补齐当前页数据。
+        if (!wp) destroyUi();
+        else {
+            createUi(hwnd);
+            statusTick_ = 0; // 恢复后下一次定时器立即补齐当前页数据。
+        }
         break;
     case WM_ERASEBKGND:
         return 1;
@@ -325,18 +326,22 @@ LRESULT WindowController::handleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
                 lastAutoCheckinDay_.store(today);
             }
         }
-        setControlText(GetDlgItem(pageStatus_, IDC_BTN_CHECKIN),
-                       result > 0 ? L"今日已签到" : result == 0 ? L"签到完成" : L"签到失败，重试");
-        InvalidateRect(GetDlgItem(pageStatus_, IDC_BTN_CHECKIN), nullptr, FALSE);
-        refreshStatusPage(hwnd);
+        if (uiCreated_) {
+            setControlText(GetDlgItem(pageStatus_, IDC_BTN_CHECKIN),
+                           result > 0 ? L"今日已签到" : result == 0 ? L"签到完成" : L"签到失败，重试");
+            InvalidateRect(GetDlgItem(pageStatus_, IDC_BTN_CHECKIN), nullptr, FALSE);
+            refreshStatusPage(hwnd);
+        }
         return 0;
     }
     case WM_APP_CREDITS_DONE:
         creditsRunning_ = false;
-        setControlText(GetDlgItem(pageStatus_, IDC_BTN_CREDITS), L"积分已刷新");
-        InvalidateRect(GetDlgItem(pageStatus_, IDC_BTN_CREDITS), nullptr, FALSE);
-        SetTimer(hwnd, kTimerCreditsHint, 1500, nullptr); // 1.5s 后恢复按钮文字
-        refreshStatusPage(hwnd);
+        if (uiCreated_) {
+            setControlText(GetDlgItem(pageStatus_, IDC_BTN_CREDITS), L"积分已刷新");
+            InvalidateRect(GetDlgItem(pageStatus_, IDC_BTN_CREDITS), nullptr, FALSE);
+            SetTimer(hwnd, kTimerCreditsHint, 1500, nullptr); // 1.5s 后恢复按钮文字
+            refreshStatusPage(hwnd);
+        }
         return 0;
     case WM_APP_TRAY: {
         WORD event = LOWORD(lp);
