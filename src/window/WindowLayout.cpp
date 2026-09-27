@@ -99,6 +99,8 @@ void WindowController::destroyUi() {
     catalogVersion_ = -1;
     releaseDrawingCache();
     deleteFonts();
+    // 隐藏到托盘后主动让系统回收当前未驻留页面，降低任务管理器中的工作集。
+    SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
     uiCreated_ = false;
 }
 
