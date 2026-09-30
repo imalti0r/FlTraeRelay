@@ -1,122 +1,137 @@
+// main.dart - FlTraeRelay 入口：Material 3 外壳 + NavigationRail 三页导航。
+// 以 sidecar 方式驱动官方 TraeRelay.exe --serve，作为其 MD3 风格前端。
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'pages/models_page.dart';
+import 'pages/overview.dart';
+import 'pages/settings_page.dart';
+import 'pages/usage_page.dart';
+import 'services/backend.dart';
+import 'theme.dart';
 
 void main() {
-  runApp(const MyApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  final app = AppState();
+  runApp(FlTraeRelayApp(app: app));
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class FlTraeRelayApp extends StatelessWidget {
+  const FlTraeRelayApp({super.key, required this.app});
 
-  // This widget is the root of your application.
+  final AppState app;
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      title: 'FlTraeRelay',
+      theme: buildLightTheme(),
+      darkTheme: buildDarkTheme(),
+      themeMode: ThemeMode.system,
+      home: AppShell(app: app),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+class AppShell extends StatefulWidget {
+  const AppShell({super.key, required this.app});
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+  final AppState app;
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<AppShell> createState() => _AppShellState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _AppShellState extends State<AppShell> {
+  int _index = 0;
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  @override
+  void initState() {
+    super.initState();
+    widget.app.init();
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
-          children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+    final app = widget.app;
+    return AnimatedBuilder(
+      animation: app,
+      builder: (context, _) {
+        return Scaffold(
+          body: CallbackShortcuts(
+            bindings: {
+              // Ctrl+1..4 切换页面（桌面键盘导航）
+              const SingleActivator(LogicalKeyboardKey.digit1, control: true): () =>
+                  setState(() => _index = 0),
+              const SingleActivator(LogicalKeyboardKey.digit2, control: true): () =>
+                  setState(() => _index = 1),
+              const SingleActivator(LogicalKeyboardKey.digit3, control: true): () =>
+                  setState(() => _index = 2),
+              const SingleActivator(LogicalKeyboardKey.digit4, control: true): () =>
+                  setState(() => _index = 3),
+            },
+            child: Focus(
+              autofocus: true,
+              child: Row(
+            children: [
+              NavigationRail(
+                selectedIndex: _index,
+                onDestinationSelected: (i) => setState(() => _index = i),
+                extended: MediaQuery.widthOf(context) >= 1000,
+                minExtendedWidth: 160,
+                leading: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.bolt,
+                        size: 32,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(height: 4),
+                      const Text('FlTraeRelay'),
+                    ],
+                  ),
+                ),
+                destinations: const [
+                  NavigationRailDestination(
+                    icon: Icon(Icons.dashboard_outlined),
+                    selectedIcon: Icon(Icons.dashboard),
+                    label: Text('运行总览'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.memory_outlined),
+                    selectedIcon: Icon(Icons.memory),
+                    label: Text('模型'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.receipt_long_outlined),
+                    selectedIcon: Icon(Icons.receipt_long),
+                    label: Text('使用记录'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.settings_outlined),
+                    selectedIcon: Icon(Icons.settings),
+                    label: Text('偏好设置'),
+                  ),
+                ],
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(
+                child: switch (_index) {
+                  0 => OverviewPage(app: app),
+                  1 => ModelsPage(app: app),
+                  2 => UsagePage(app: app),
+                  _ => SettingsPage(app: app),
+                },
+              ),
+            ],
+              ),
             ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ),
+          ),
+        );
+      },
     );
   }
 }

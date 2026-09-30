@@ -1,10 +1,9 @@
-// models.dart - 数据模型：config.json 映射、/v1/status、/v1/models、usage 记录。
-// RelayConfig 直接持有原始 JSON map，已知字段通过 getter/setter 读写，
-// 未知字段在保存时原样保留（与 C++ Config::toJson 的 rawUnknown 行为一致）。
+// models.dart - config.json 的 Dart 映射。raw 保留整份 JSON，已知字段通过
+// getter/setter 读写，未知字段在保存时原样保留（与 C++ Config::toJson 一致）。
 
 import 'dart:math';
 
-/// config.json 的内存映射。raw 保留整份 JSON，写回时不丢字段。
+/// config.json 的内存映射。
 class RelayConfig {
   RelayConfig(this.raw);
 
@@ -67,34 +66,8 @@ class RelayConfig {
   String get poolSelectBy => _nestedStr(_poolPath, 'selectBy', 'credits');
   set poolSelectBy(String v) => _map(_poolPath)['selectBy'] = v;
 
-  static const _checkinPath = ['accounts', 'checkin'];
-  static const _poolPath = ['accounts', 'pool'];
-
-  /// models.<name> 覆盖项（与 C++ ModelConfig 对应）。不存在时返回 null。
-  Map<String, dynamic>? modelOverride(String name) {
-    final v = _section('models')[name];
-    if (v is Map<String, dynamic>) return v;
-    if (v is Map) return v.map((k, value) => MapEntry(k.toString(), value));
-    return null;
-  }
-
-  /// 写入 models.<name> 覆盖项（present 语义：出现即生效，不存在 enabled=true）。
-  void upsertModelOverride(String name, Map<String, dynamic> fields) {
-    final existing = modelOverride(name) ?? <String, dynamic>{};
-    existing.addAll(fields);
-    existing.removeWhere((k, v) => v == null);
-    _section('models')[name] = existing;
-  }
-
-  String? modelReasoningEffort(String name) {
-    final v = modelOverride(name)?['reasoningEffort'];
-    return v is String && v.isNotEmpty ? v : null;
-  }
-
-  int? modelIsMaxMode(String name) {
-    final v = modelOverride(name)?['isMaxMode'];
-    return v is int ? v : null;
-  }
+  static const List<String> _checkinPath = ['accounts', 'checkin'];
+  static const List<String> _poolPath = ['accounts', 'pool'];
 
   // ---------- logging ----------
   bool get loggingEnabled => _bool('logging', 'enabled', true);
@@ -106,9 +79,23 @@ class RelayConfig {
 
   String get baseUrl => 'http://${serviceHost == '0.0.0.0' ? '127.0.0.1' : serviceHost}:$servicePort';
 
+  // 易失字段：每次启动从本机 Trae 安装探测（对应 C++ 不写回的 upstream 段）
+  String ideVersion = '';
+  String ideVersionCode = '';
+
   String _str(String sec, String key, String def) {
     final v = _section(sec)[key];
     return v is String ? v : def;
+  }
+
+  int _int(String sec, String key, int def) {
+    final v = _section(sec)[key];
+    return v is int ? v : def;
+  }
+
+  bool _bool(String sec, String key, bool def) {
+    final v = _section(sec)[key];
+    return v is bool ? v : def;
   }
 
   /// 取嵌套节点（自动创建父级），如 path = ['accounts', 'checkin']。
@@ -146,14 +133,30 @@ class RelayConfig {
     return v is String ? v : def;
   }
 
-  int _int(String sec, String key, int def) {
-    final v = _section(sec)[key];
-    return v is int ? v : def;
+  /// `models.<name>` 覆盖项（与 C++ ModelConfig 对应）。不存在时返回 null。
+  Map<String, dynamic>? modelOverride(String name) {
+    final v = _section('models')[name];
+    if (v is Map<String, dynamic>) return v;
+    if (v is Map) return v.map((k, value) => MapEntry(k.toString(), value));
+    return null;
   }
 
-  bool _bool(String sec, String key, bool def) {
-    final v = _section(sec)[key];
-    return v is bool ? v : def;
+  /// 写入 `models.<name>` 覆盖项（present 语义：出现即生效，不存在 enabled=true）。
+  void upsertModelOverride(String name, Map<String, dynamic> fields) {
+    final existing = modelOverride(name) ?? <String, dynamic>{};
+    existing.addAll(fields);
+    existing.removeWhere((k, v) => v == null);
+    _section('models')[name] = existing;
+  }
+
+  String? modelReasoningEffort(String name) {
+    final v = modelOverride(name)?['reasoningEffort'];
+    return v is String && v.isNotEmpty ? v : null;
+  }
+
+  int? modelIsMaxMode(String name) {
+    final v = modelOverride(name)?['isMaxMode'];
+    return v is int ? v : null;
   }
 
   /// 生成与 C++ crypto::genApiKey 相同格式的密钥：sk-trae- + 12 字节 hex。
@@ -166,125 +169,4 @@ class RelayConfig {
     }
     return sb.toString();
   }
-}
-
-/// /v1/status 的 accounts[] 元素。
-class AccountInfo {
-  const AccountInfo({
-    required this.nickname,
-    required this.edition,
-    required this.credits,
-    required this.active,
-  });
-
-  factory AccountInfo.fromJson(Map<String, dynamic> j) => AccountInfo(
-        nickname: (j['nickname'] ?? '').toString(),
-        edition: (j['edition'] ?? '').toString(),
-        credits: (j['credits'] as num?)?.toDouble() ?? -1,
-        active: (j['active'] as num?)?.toInt() ?? 0,
-      );
-
-  final String nickname;
-  final String edition;
-  final double credits;
-  final int active;
-
-  bool get busy => active > 0;
-}
-
-/// /v1/status 响应。
-class RelayStatus {
-  const RelayStatus({required this.accounts});
-
-  factory RelayStatus.fromJson(Map<String, dynamic> j) => RelayStatus(
-        accounts: ((j['accounts'] as List?) ?? const [])
-            .whereType<Map>()
-            .map((e) => AccountInfo.fromJson(e.map((k, v) => MapEntry(k.toString(), v))))
-            .toList(),
-      );
-
-  final List<AccountInfo> accounts;
-}
-
-/// /v1/models 响应元素。
-class ModelInfo {
-  const ModelInfo({
-    required this.id,
-    required this.displayName,
-    required this.maxMode,
-    required this.effortOptions,
-  });
-
-  factory ModelInfo.fromJson(Map<String, dynamic> j) => ModelInfo(
-        id: (j['id'] ?? '').toString(),
-        displayName: (j['display_name'] ?? '').toString(),
-        maxMode: j['max_mode'] == true,
-        effortOptions: ((j['reasoning_effort_options'] as List?) ?? const [])
-            .map((e) => e.toString())
-            .toList(),
-      );
-
-  final String id;
-  final String displayName;
-  final bool maxMode;
-  final List<String> effortOptions;
-
-  String get label => displayName.isEmpty ? id : displayName;
-}
-
-/// usage/usage-YYYYMMDD.jsonl 的一行（与 C++ UsageRecord 对应）。
-class UsageRecord {
-  const UsageRecord({
-    required this.ts,
-    required this.account,
-    required this.model,
-    required this.endpoint,
-    required this.input,
-    required this.output,
-    required this.cache,
-    required this.creditsDelta,
-    required this.creditsKnown,
-    required this.ms,
-    required this.ok,
-  });
-
-  factory UsageRecord.fromJson(Map<String, dynamic> j) => UsageRecord(
-        ts: DateTime.tryParse((j['ts'] ?? '').toString().replaceFirst(' ', 'T')) ??
-            DateTime.fromMillisecondsSinceEpoch(0),
-        account: (j['account'] ?? '').toString(),
-        model: (j['model'] ?? '').toString(),
-        endpoint: (j['ep'] ?? '').toString(),
-        input: _asInt(j['in']),
-        output: _asInt(j['out']),
-        cache: _asInt(j['cache']),
-        creditsDelta: (j['delta'] as num?)?.toDouble() ?? 0,
-        creditsKnown: j['known'] == true,
-        ms: _asInt(j['ms']),
-        ok: j['ok'] != false,
-      );
-
-  static int _asInt(dynamic v) => (v as num?)?.toInt() ?? 0;
-
-  final DateTime ts;
-  final String account;
-  final String model;
-  final String endpoint;
-  final int input;
-  final int output;
-  final int cache;
-  final double creditsDelta;
-  final bool creditsKnown;
-  final int ms;
-  final bool ok;
-
-  int get tokens => input + output;
-}
-
-/// 某一天的用量汇总。
-class TodayUsage {
-  TodayUsage({required this.requests, required this.tokens, required this.credits});
-
-  int requests = 0;
-  int tokens = 0;
-  double credits = 0;
 }

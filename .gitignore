@@ -1,0 +1,6 @@
+# C++ 后端构建产物
+build/
+dist/
+
+# Flutter app 的构建产物由 app/.gitignore 管理
+agent.md

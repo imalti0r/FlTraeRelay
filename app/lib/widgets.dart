@@ -23,8 +23,8 @@ class SectionCard extends StatelessWidget {
             Row(
               children: [
                 Text(title, style: theme.textTheme.titleMedium),
-                const Spacer(),
-                if (trailing != null) trailing!,
+            const Spacer(),
+            ?trailing,
               ],
             ),
             const SizedBox(height: 12),

@@ -127,8 +127,9 @@ cmake --build build --config Release --parallel 4
 ## 仓库内容
 
 ```text
-src/                    C++ 源码、资源和版本模板
-include/                头文件
+src/                    C++ 源码、资源和版本模板（上游原版）
+include/                头文件（上游原版）
+app/                    Flutter 完全重写版（FlTraeRelay）：Dart 实现后端 + Material 3 前端，单进程
 docs/images/预览.png    软件界面预览图
 CMakeLists.txt          CMake 构建配置
 README.md               项目说明

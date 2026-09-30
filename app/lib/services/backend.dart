@@ -1,170 +1,228 @@
-// backend.dart - 全局应用状态：以 sidecar 方式管理官方 TraeRelay.exe --serve
-// 进程，轮询 /health 与 /v1/status，读写 config.json 与 usage 记录。
+// backend.dart - 全局应用状态：进程内启动 RelayServer（HTTP + 账号池 + 模型目录），
+// 读写 config.json 与 usage 记录，向 UI 提供状态刷新与签到/积分操作。
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/account_pool.dart';
+import '../core/auth.dart' show Account;
+import '../core/model_catalog.dart';
+import '../core/relay_server.dart';
+import '../core/storage.dart' show detectIdeVersion;
 import '../models.dart';
-import 'config_store.dart';
-import 'relay_api.dart';
-import 'usage_store.dart';
 
-enum BackendState { exeMissing, stopped, starting, running }
+enum BackendState { stopped, starting, running }
+
+/// 编译期兜底版本头（与 C++ Config::resolveIdeVersion 的 kFallbackIdeVersion 一致）。
+const String _fallbackIdeVersion = '3.3.102';
+const String _fallbackIdeVersionCode = '20260916';
+
+/// UI 视图模型（与 core 层解耦）。
+class AccountView {
+  AccountView._(Account a)
+      : nickname = a.nickname,
+        edition = a.editionId,
+        credits = a.credits,
+        active = a.active;
+  final String nickname;
+  final String edition;
+  final double credits;
+  final int active;
+  bool get busy => active > 0;
+}
+
+class UsageRow {
+  UsageRow._(UsageRecord r)
+      : ts = r.ts,
+        account = r.account,
+        model = r.model,
+        endpoint = r.endpoint,
+        input = r.input,
+        output = r.output,
+        creditsDelta = r.creditsDelta,
+        creditsKnown = r.creditsKnown,
+        ms = r.ms,
+        ok = r.ok,
+        _source = r;
+  final UsageRecord _source;
+  final DateTime ts;
+  final String account;
+  final String model;
+  final String endpoint;
+  final int input;
+  final int output;
+  final double creditsDelta;
+  final bool creditsKnown;
+  final int ms;
+  final bool ok;
+  int get tokens => input + output;
+}
+
+class ModelCatalogView {
+  const ModelCatalogView({
+    required this.id,
+    required this.displayName,
+    required this.maxMode,
+    required this.effortOptions,
+    required this.effortDefault,
+    required this.supportThinking,
+    required this.vision,
+    required this.cwDefault,
+    required this.cwMax,
+    required this.rateBase,
+    required this.rateActivity,
+    required this.activityType,
+  });
+  final String id;
+  final String displayName;
+  final bool maxMode;
+  final List<String> effortOptions;
+  final String effortDefault;
+  final bool supportThinking;
+  final bool vision;
+  final int cwDefault;
+  final List<int> cwMax;
+  final double rateBase;
+  final double rateActivity;
+  final String activityType;
+  String get label => displayName.isEmpty ? id : displayName;
+
+  /// 展示用的计费倍率：活动价优先（现价），否则基础倍率。
+  String? get rateLabel {
+    final r = rateActivity > 0 ? rateActivity : rateBase;
+    if (r <= 0) return null;
+    return r.toString();
+  }
+}
 
 class AppState extends ChangeNotifier {
-  static const _prefExePath = 'backend.exePath';
-  static const exeName = 'TraeRelay.exe';
-
-  String? exePath;
-  BackendState state = BackendState.exeMissing;
+  BackendState state = BackendState.stopped;
   String? notice;
 
   RelayConfig? config;
-  bool configDirty = false; // 配置已修改、后端尚未按新配置重启
+  bool configDirty = false; // 配置已修改、服务尚未按新配置重启
 
-  List<ModelInfo> models = [];
-  List<AccountInfo> accounts = [];
-  TodayUsage today = TodayUsage(requests: 0, tokens: 0, credits: 0);
-
-  RelayApi? _api;
-  Process? _process;
+  RelayServer? _server;
+  AccountPool? _pool;
+  ModelCatalog? _catalog;
   Timer? _pollTimer;
-  StreamSubscription? _exitSub;
-  SharedPreferences? _prefs;
 
-  UsageStore? get usage => exePath == null ? null : UsageStore(exePath!);
-  ConfigStore? get configStore =>
-      exePath == null ? null : ConfigStore(ConfigStore.configPathFor(exePath!));
-
-  bool get backendRunning => state == BackendState.running;
-
-  // ---------- 初始化 ----------
-
-  Future<void> init() async {
-    _prefs = await SharedPreferences.getInstance();
-    exePath = _prefs?.getString(_prefExePath);
-    if (exePath == null || !File(exePath!).existsSync()) {
-      exePath = await _discoverExe();
-    }
-    await _loadConfig();
-    if (exePath != null) {
-      state = BackendState.stopped;
-    }
-    notifyListeners();
+  String get dataDir {
+    final exe = Platform.resolvedExecutable;
+    return File(exe).parent.path;
   }
 
-  /// 默认在 Flutter 应用 exe 同目录寻找 TraeRelay.exe（打包分发时两者放一起）。
-  Future<String?> _discoverExe() async {
-    final dir = File(Platform.resolvedExecutable).parent;
-    final candidate = File('${dir.path}${Platform.pathSeparator}$exeName');
-    return candidate.existsSync() ? candidate.path : null;
+  String get configPath => '$dataDir\\config.json';
+  bool get backendRunning => state == BackendState.running;
+
+  // ---------- 生命周期 ----------
+
+  Future<void> init() async {
+    await _loadConfig();
+    await startBackend();
   }
 
   Future<void> _loadConfig() async {
-    final store = configStore;
-    if (store == null) {
-      config = null;
-      return;
+    try {
+      final f = File(configPath);
+      if (f.existsSync()) {
+        final decoded = jsonDecode(f.readAsStringSync());
+        config = RelayConfig(decoded is Map<String, dynamic> ? decoded : <String, dynamic>{});
+      } else {
+        config = RelayConfig(<String, dynamic>{});
+        // 首次运行：生成 API Key 并写盘（与 C++ 首启行为一致）
+        config!.apiKey = RelayConfig.genApiKey();
+        await saveConfig(silent: true);
+      }
+    } catch (e) {
+      config = RelayConfig(<String, dynamic>{});
+      notice = '配置读取失败，已使用默认配置：$e';
     }
-    config = await store.load();
   }
-
-  Future<void> setExePath(String path) async {
-    final f = File(path.trim());
-    if (!f.existsSync()) {
-      notice = '文件不存在：$path';
-      notifyListeners();
-      return;
-    }
-    exePath = f.path;
-    await _prefs?.setString(_prefExePath, f.path);
-    notice = null;
-    state = BackendState.stopped;
-    await _loadConfig();
-    notifyListeners();
-  }
-
-  // ---------- 后端进程管理 ----------
 
   Future<void> startBackend() async {
-    if (exePath == null || state == BackendState.starting || backendRunning) return;
-    final exe = exePath!;
+    final cfg = config;
+    if (cfg == null || state == BackendState.starting || backendRunning) return;
     state = BackendState.starting;
     notice = null;
     notifyListeners();
 
     try {
-      final proc = await Process.start(
-        exe,
-        const ['--serve'],
-        workingDirectory: File(exe).parent.path,
-        mode: ProcessStartMode.detachedWithStdio,
+      // IDE 版本头：从本机 Trae 安装探测，失败用编译期兜底（与 C++ 行为一致）
+      final (ver, code) = detectIdeVersion() ?? (_fallbackIdeVersion, _fallbackIdeVersionCode);
+      cfg.ideVersion = ver;
+      cfg.ideVersionCode = code;
+
+      final pool = AccountPool(dataDir);
+      pool.autoDiscover();
+      pool.updateSettings(
+        maxConcurrentPerAccount: cfg.maxConcurrentPerAccount,
+        minRequestIntervalMs: 0,
+        poolSelectBy: cfg.poolSelectBy,
+        ideVersion: ver,
+        ideVersionCode: code,
+        checkinEnabled: cfg.checkinEnabled,
+        checkinHour: cfg.checkinHour,
+        checkinMinute: cfg.checkinMinute,
       );
-      _process = proc;
-      _exitSub = proc.exitCode.then((code) {
-        _onBackendExited(code);
-      });
+      final catalog = ModelCatalog();
+      catalog.bind(pool);
+      final server = RelayServer(pool: pool, catalog: catalog, settings: _settingsFrom(cfg));
+      await server.start();
+
+      _pool = pool;
+      _catalog = catalog;
+      _server = server;
+      state = BackendState.running;
+      configDirty = false;
+      notifyListeners();
+
+      // 服务启动即提供真实积分（与 C++ --serve 行为一致），随后启动模型目录定时刷新
+      unawaited(pool.refreshCredits().then((_) {
+        catalog.start();
+        notifyListeners();
+      }));
+      _startPolling();
     } catch (e) {
       state = BackendState.stopped;
-      notice = '启动失败：$e';
+      notice = '服务启动失败：$e（端口 ${cfg.servicePort} 可能被占用）';
       notifyListeners();
-      return;
     }
-
-    // 等待 /health 就绪；进程提前退出（如单实例互斥命中）时立即结束等待。
-    final deadline = DateTime.now().add(const Duration(seconds: 20));
-    while (DateTime.now().isBefore(deadline)) {
-      if (_process == null) return; // 已退出，_onBackendExited 已更新状态
-      if (await _currentApi().health()) {
-        state = BackendState.running;
-        configDirty = false;
-        notice = null;
-        await refreshOnce();
-        _startPolling();
-        notifyListeners();
-        return;
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    }
-    state = BackendState.stopped;
-    notice = '后端未在 20 秒内就绪，请检查端口占用或查看 logs/ 目录';
-    notifyListeners();
   }
 
-  void _onBackendExited(int code) {
-    _process = null;
-    _exitSub = null;
-    _stopPolling();
-    if (state == BackendState.starting) {
-      notice = '后端进程立即退出（退出码 $code）。'
-          '若已有一个 Trae Relay 实例在运行（单实例互斥），请先退出它再启动。';
-    } else if (state == BackendState.running) {
-      notice = '后端进程已退出（退出码 $code）';
-    }
-    state = exePath == null ? BackendState.exeMissing : BackendState.stopped;
-    accounts = [];
-    notifyListeners();
+  RelaySettings _settingsFrom(RelayConfig cfg) {
+    return RelaySettings()
+      ..host = cfg.serviceHost
+      ..port = cfg.servicePort
+      ..allowLan = cfg.allowLan
+      ..apiKey = cfg.apiKey
+      ..allowAnyApiKey = cfg.allowAnyApiKey
+      ..defaultStream = cfg.stream
+      ..defaultReasoningEffort = cfg.reasoningEffort ?? ''
+      ..defaultIsMaxMode = cfg.isMaxMode
+      ..defaultMaxContextWindow = 0
+      ..ideVersion = cfg.ideVersion
+      ..ideVersionCode = cfg.ideVersionCode
+      ..logLevel = cfg.logLevel
+      ..loggingEnabled = cfg.loggingEnabled;
   }
 
   Future<void> stopBackend() async {
-    final proc = _process;
     _stopPolling();
+    final server = _server;
+    _server = null;
+    _catalog?.stop();
+    _catalog = null;
+    _pool = null;
     state = BackendState.stopped;
-    notice = null;
-    accounts = [];
     notifyListeners();
-    if (proc != null) {
-      _process = null;
-      proc.kill();
-      // detachedWithStdio 下等待退出事件完成状态收敛
-      await proc.exitCode.timeout(const Duration(seconds: 5), onTimeout: () => -1);
-    }
+    await server?.stop();
   }
 
-  /// 按当前 config.json 重启后端（改配置后调用）。
+  /// 按当前 config.json 重启服务（改配置后调用）。
   Future<void> restartBackend() async {
     await stopBackend();
     await Future<void>.delayed(const Duration(milliseconds: 300));
@@ -173,22 +231,9 @@ class AppState extends ChangeNotifier {
 
   // ---------- 数据刷新 ----------
 
-  RelayApi _currentApi() {
-    final cfg = config;
-    final api = RelayApi(
-      host: cfg?.serviceHost ?? '127.0.0.1',
-      port: cfg?.servicePort ?? 8317,
-      apiKey: cfg?.apiKey ?? '',
-    );
-    _api = api;
-    return api;
-  }
-
   void _startPolling() {
     _stopPolling();
-    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      refreshOnce();
-    });
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => refreshOnce());
   }
 
   void _stopPolling() {
@@ -196,43 +241,96 @@ class AppState extends ChangeNotifier {
     _pollTimer = null;
   }
 
-  /// 拉取状态、模型与今日用量。失败静默（轮询场景），成功后通知 UI。
+  /// 读取一条使用记录的详情（请求消息与回复内容）。
+  Map<String, dynamic>? readDetail(UsageRow row) => _pool?.readDetail(row._source);
+
+  /// 进程内数据已在 AccountPool 上，这里刷新今日统计并通知 UI。
   Future<void> refreshOnce() async {
     if (!backendRunning) return;
-    final api = _currentApi();
-    try {
-      final status = await api.status();
-      accounts = status.accounts;
-      if (models.isEmpty) {
-        try {
-          models = await api.models();
-        } catch (_) {}
-      }
-      final u = usage;
-      if (u != null) {
-        today = await u.usageFor(DateTime.now());
-      }
-      notifyListeners();
-    } catch (_) {}
+    _pool?.usageToday();
+    notifyListeners();
   }
 
+  // ---------- 账号操作（进程内直调） ----------
+
+  List<AccountView> get accountViews {
+    final pool = _pool;
+    if (pool == null) return const [];
+    return [for (final a in pool.accounts) AccountView._(a)];
+  }
+
+  Future<bool> checkinAll() async {
+    final pool = _pool;
+    if (pool == null) return false;
+    var anyOk = false;
+    for (final acc in pool.accounts) {
+      final r = await pool.doCheckin(acc);
+      if (r >= 0) anyOk = true;
+    }
+    await pool.refreshCredits();
+    refreshOnce();
+    return anyOk;
+  }
+
+  Future<void> refreshCreditsAll() async {
+    await _pool?.refreshCredits();
+    refreshOnce();
+  }
+
+  TodayUsage get todayUsage => _pool?.usageToday() ?? TodayUsage();
+
+  List<UsageRow> usageForDay(DateTime day) {
+    final pool = _pool;
+    if (pool == null) return const [];
+    return [for (final r in pool.usagePage(day)) UsageRow._(r)];
+  }
+
+  /// 手动触发模型目录刷新。
   Future<void> refreshModels() async {
-    if (!backendRunning) return;
-    try {
-      models = await _currentApi().models();
-      notifyListeners();
-    } catch (_) {}
+    final pool = _pool;
+    final catalog = _catalog;
+    if (pool == null || catalog == null || pool.accounts.isEmpty) return;
+    await catalog.refreshOnce(pool.accounts.first);
+    notifyListeners();
+  }
+
+  List<ModelCatalogView> get modelCatalogViews {
+    final catalog = _catalog;
+    if (catalog == null) return const [];
+    return [
+      for (final c in catalog.cached)
+        ModelCatalogView(
+          id: c.configName,
+          displayName: c.displayName.isEmpty ? c.configName : c.displayName,
+          maxMode: c.maxMode,
+          effortOptions: [...c.effortOptions, ...c.effortOptionsExt],
+          effortDefault: c.effortDefault,
+          supportThinking: c.supportThinking,
+          vision: c.vision,
+          cwDefault: c.cwDefault,
+          cwMax: c.cwMax,
+          rateBase: c.rateBase,
+          rateActivity: c.rateActivity,
+          activityType: c.activityType,
+        )
+    ];
   }
 
   // ---------- 配置写入 ----------
 
-  Future<bool> saveConfig() async {
-    final store = configStore;
+  Future<bool> saveConfig({bool silent = false}) async {
     final cfg = config;
-    if (store == null || cfg == null) return false;
+    if (cfg == null) return false;
     try {
-      await store.save(cfg);
-      configDirty = backendRunning;
+      const encoder = JsonEncoder.withIndent('  ');
+      final tmp = '$configPath.${DateTime.now().microsecondsSinceEpoch}.tmp';
+      final t = File(tmp);
+      t.writeAsStringSync(encoder.convert(cfg.raw));
+      final f = File(configPath);
+      if (f.existsSync()) f.deleteSync();
+      t.renameSync(f.path);
+      configDirty = backendRunning && !silent;
+      if (!silent) notice = null;
       notifyListeners();
       return true;
     } catch (e) {
@@ -249,7 +347,6 @@ class AppState extends ChangeNotifier {
     await saveConfig();
   }
 
-  /// 标记配置被 UI 修改（由各设置控件调用，保存统一走 saveConfig）。
   void markConfigChanged() {
     configDirty = true;
     notifyListeners();
@@ -258,8 +355,9 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _stopPolling();
-    _exitSub?.cancel();
-    _process?.kill();
+    _server?.stop();
+    _catalog?.stop();
+    _pool?.dispose();
     super.dispose();
   }
 }
