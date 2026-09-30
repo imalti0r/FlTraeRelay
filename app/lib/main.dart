@@ -45,8 +45,6 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _index = 0;
-  static const _trayChannel = MethodChannel('fltrae_relay/tray');
-
   @override
   void initState() {
     super.initState();
@@ -56,13 +54,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _pushTraySetting() async {
-    final cfg = widget.app.config;
-    if (cfg == null) return;
-    try {
-      await _trayChannel.invokeMethod<bool>('setEnabled', cfg.closeToTray);
-    } on MissingPluginException {
-      // 非 Windows 平台或通道未就绪：忽略
-    } catch (_) {}
+    await widget.app.pushTraySetting();
   }
 
   @override

@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../core/account_pool.dart';
 import '../core/auth.dart' show Account;
@@ -106,6 +107,9 @@ class AppState extends ChangeNotifier {
   bool configDirty = false; // 配置已修改、服务尚未按新配置重启
 
   RelayServer? _server;
+
+  /// 与原生托盘层的通道（exitApp / setEnabled）。
+  static const MethodChannel trayChannel = MethodChannel('fltrae_relay/tray');
   AccountPool? _pool;
   ModelCatalog? _catalog;
   Timer? _pollTimer;
@@ -171,6 +175,7 @@ class AppState extends ChangeNotifier {
       final catalog = ModelCatalog();
       catalog.bind(pool);
       final server = RelayServer(pool: pool, catalog: catalog, settings: _settingsFrom(cfg));
+      server.trayChannel = trayChannel;
       _registerDebugHandlers(server);
       await server.start();
 
@@ -187,11 +192,24 @@ class AppState extends ChangeNotifier {
         notifyListeners();
       }));
       _startPolling();
+      // 原生托盘开关是进程级状态：每次启动后按配置重新推送
+      unawaited(pushTraySetting());
     } catch (e) {
       state = BackendState.stopped;
       notice = '服务启动失败：$e（端口 ${cfg.servicePort} 可能被占用）';
       notifyListeners();
     }
+  }
+
+  /// 把"关闭最小化到托盘"开关推送到原生托盘层（启动与设置变更时调用）。
+  Future<void> pushTraySetting() async {
+    final cfg = config;
+    if (cfg == null) return;
+    try {
+      await trayChannel.invokeMethod<bool>('setEnabled', cfg.closeToTray);
+    } on MissingPluginException {
+      // 非 Windows 平台或通道未就绪：忽略
+    } catch (_) {}
   }
 
   /// 注册调试 API 处理器（/v1/debug/*，需 API Key）。
@@ -238,6 +256,15 @@ class AppState extends ChangeNotifier {
       },
       // 回显（连通性测试）
       'echo': (args) async => {'echo': args, 'time': DateTime.now().toIso8601String()},
+      // 触发托盘退出链路（与托盘菜单"退出"等价）：仅调试用
+      'tray-exit': (_) async {
+        try {
+          await server.trayChannel?.invokeMethod<bool>('exitApp');
+          return {'ok': true, 'note': 'exitApp 已发送，进程应随即退出'};
+        } catch (e) {
+          return {'ok': false, 'error': '$e'};
+        }
+      },
     };
   }
 

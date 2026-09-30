@@ -38,7 +38,12 @@ bool FlutterWindow::OnCreate() {
 
   // 托盘：与 Dart 侧建立 MethodChannel；"关闭时最小化到托盘"由 Dart 推送开关。
   auto messenger = flutter_controller_->engine()->messenger();
-  tray_.Initialize(GetHandle(), [this]() {}, []() {});
+  // 托盘"退出"：RequestExit 置 force_exit_ 后发 WM_CLOSE，
+  // WM_CLOSE 处理器放行 → DefWindowProc → DestroyWindow → 退出。
+  tray_.Initialize(
+      GetHandle(),
+      []() {},
+      [this]() { tray_.RequestExit(); });
   auto channel = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
       messenger, "fltrae_relay/tray",
       &flutter::StandardMethodCodec::GetInstance());
@@ -52,6 +57,10 @@ bool FlutterWindow::OnCreate() {
           result->Success(flutter::EncodableValue(true));
         } else if (call.method_name() == "hideToTray") {
           tray_.HideToTray(GetHandle());
+          result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "exitApp") {
+          // 与托盘菜单"退出"同一条路径：force_exit_ + WM_CLOSE 放行退出
+          tray_.RequestExit();
           result->Success(flutter::EncodableValue(true));
         } else {
           result->NotImplemented();
@@ -96,9 +105,8 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       break;
     case WM_CLOSE:
       // "关闭时最小化到托盘"开启时：拦截关闭，隐藏到托盘继续运行
-      // （内嵌 HTTP 服务不中断）。
-      if (tray_.close_to_tray()) {
-        tray_.HideToTray(hwnd);
+      // （内嵌 HTTP 服务不中断）。托盘"退出"发起的关闭（force_exit_）放行。
+      if (tray_.ShouldHideOnClose(hwnd)) {
         return 0;
       }
       break;

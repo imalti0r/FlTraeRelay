@@ -6,6 +6,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/services.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -86,6 +87,9 @@ class ResolvedSettings {
 
 class RelayServer {
   RelayServer({required this.pool, required this.catalog, required this.settings});
+
+  /// 托盘通道（宿主注入）：debug API 的 tray-exit 复用它真正退出应用。
+  MethodChannel? trayChannel;
 
   /// 调试扩展回调：由宿主（AppState）注入，key → JSON 值。
   /// GET  /v1/debug/<key>     取数据

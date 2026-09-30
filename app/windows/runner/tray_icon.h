@@ -23,6 +23,13 @@ class TrayIcon {
   void set_close_to_tray(bool enabled) { close_to_tray_ = enabled; }
   bool close_to_tray() const { return close_to_tray_; }
 
+  // 托盘菜单"退出"：置强制退出标志并发 WM_CLOSE，
+  // WM_CLOSE 处理器看到标志后放行给默认处理（DestroyWindow → 退出）。
+  void RequestExit();
+
+  // WM_CLOSE 拦截时调用：若处于强制退出状态返回 false（放行），否则隐藏并返回 true
+  bool ShouldHideOnClose(HWND hwnd);
+
   // 返回该消息是否已被托盘处理（处理过的返回 true，调用方直接返回 0）
   bool HandleMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
 
@@ -37,6 +44,7 @@ class TrayIcon {
   NOTIFYICONDATA nid_ = {};
   bool tray_added_ = false;
   bool close_to_tray_ = false;
+  bool force_exit_ = false;
   std::function<void()> on_restore_;
   std::function<void()> on_exit_request_;
 

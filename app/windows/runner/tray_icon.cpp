@@ -63,6 +63,22 @@ void TrayIcon::HideToTray(HWND hwnd) {
   ShowWindow(hwnd, SW_HIDE);
 }
 
+void TrayIcon::RequestExit() {
+  force_exit_ = true;
+  PostMessage(window_, WM_CLOSE, 0, 0);
+}
+
+bool TrayIcon::ShouldHideOnClose(HWND hwnd) {
+  if (force_exit_) {
+    return false;  // 托盘"退出"发起的关闭：放行，走默认 DestroyWindow
+  }
+  if (close_to_tray_) {
+    HideToTray(hwnd);
+    return true;  // 已拦截隐藏
+  }
+  return false;   // 开关未开：放行正常关闭
+}
+
 bool TrayIcon::HandleMessage(HWND hwnd, UINT message, WPARAM wparam,
                              LPARAM lparam) {
   if (message == WM_APP_TRAY && wparam == TRAY_ICON_ID) {
