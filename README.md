@@ -1,158 +1,96 @@
-﻿# Trae Relay
+# FlTraeRelay
 
-当前版本：`0.13`
+[![Release](https://img.shields.io/github/v/release/imalti0r/FlTraeRelay)](https://github.com/imalti0r/FlTraeRelay/releases/latest)
+[![License](https://img.shields.io/github/license/imalti0r/FlTraeRelay)](LICENSE)
 
-Windows 原生的 Trae 本地 API 转接工具，将当前用户已登录的 Trae 账号提供为 OpenAI 兼容接口。单个 EXE 即可运行，无需 Python、Node.js 或 Docker。
+Trae Relay 的 **Flutter 完全重写版**。将上游 [sdn205/Trae-Relay](https://github.com/sdn205/Trae-Relay)（C++ / Win32）的全部后端能力用 Dart 重新实现，配上 Material 3 桌面界面。
 
-目前主要验证 Trae CN，Trae Work 和国际版请自行测试。
+- **单进程自包含**：HTTP 服务器、Trae 账号发现与解密、上游代理、账号池全部内嵌在 Flutter 应用进程内，无外部后端、无 sidecar，打开即用。
+- **仅使用当前 TRAE SOLO CN 客户端登录的账号**：其他发行版（Trae CN / Trae / Trae Work / 国际版）的账号不发现、不显示、不使用。
 
-欢迎提交 Issue 或 Star。
+## 截图
 
-## 预览
+| 运行总览 | 模型 |
+| --- | --- |
+| ![运行总览](docs/images/screenshot-overview.png) | ![模型](docs/images/screenshot-models.png) |
 
-![Trae Relay 运行界面](docs/images/%E9%A2%84%E8%A7%88.png)
+| 使用记录 | 偏好设置 |
+| --- | --- |
+| ![使用记录](docs/images/screenshot-usage.png) | ![偏好设置](docs/images/screenshot-settings.png) |
 
 ## 功能
 
-- Chat Completions、Responses、模型列表
-- JSON 和 SSE 流式输出
-- 函数工具、Responses 自定义工具、命名空间工具
-- 多轮会话、思考档位、Max 模式
-- 账号发现、令牌刷新、积分和使用记录
-- 排队状态、今日 Token 和今日积分消耗
-- 模型目录启动拉取，成功后每小时刷新，失败后每 5 分钟重试
-- 日志开关与请求失败原因记录
-- 托盘、开机自启动、自动签到、局域网访问
+- **OpenAI 兼容 API**（默认 `http://127.0.0.1:8317/v1`）
+  - `/v1/chat/completions`：流式 SSE / 非流式、原生 function calling、`reasoning_content`、`stop` 本地截断、`stream_options.include_usage`
+  - `/v1/responses`：基础兼容（instructions、多模态 input、流式 delta、usage）
+  - `/v1/models`、`/v1/status`、`/health`；Bearer 与 `X-API-Key` 双鉴权、CORS
+- **真流式**：逐帧实时到达；上游思考/排队期间空闲心跳保活；上游挂起 120 秒自动失败
+- **账号**：自动发现并解密 TRAE SOLO CN 凭据（tc 格式 AES-128-CBC）、令牌自动刷新、积分实时同步、手动/自动签到（9074 限流退避重试）
+- **模型页**：模型目录自动拉取（成功每小时刷新、失败 5 分钟重试），每个模型行内直接设置思考强度（默认/轻/高/极高）、Max、启用状态
+- **使用记录**：按日期浏览请求明细；**点开任意一条可查看完整发送消息、思考过程与回答内容**
+- **偏好设置**：端口、局域网、并发数、签到时间、Responses 缓存、日志级别；`Ctrl+1..4` 快速切页
 
-## 使用环境
+## 下载
 
-- Windows 10/11 x64
-- 当前 Windows 用户已安装并登录 Trae
-- 能够连接 Trae 上游服务
+到 [Releases](https://github.com/imalti0r/FlTraeRelay/releases/latest) 下载：
+
+| 文件 | 说明 |
+| --- | --- |
+| `FlTraeRelay-v*-portable-win-x64.zip` | 便携版：解压即用 |
+| `FlTraeRelay-v*-setup-win-x64.exe` | 安装版：向导安装，含桌面快捷方式 |
 
 ## 快速开始
 
-1. 登录 Trae，并确认可以正常对话。
-2. 下载 Release 中的 `TraeRelay.exe`，或按“从源码构建”编译。
-3. 双击运行。首次启动会在 EXE 同目录生成 `config.json` 和 API Key，并监听 `8317` 端口。
-4. 在“运行总览”确认账号和模型已加载，然后在客户端填写：
+1. 安装并登录 TRAE SOLO CN，确认能正常对话
+2. 启动 FlTraeRelay——首次运行自动在后端 exe 同目录生成 `config.json` 并生成 API Key
+3. 客户端配置：
 
 | 配置项 | 内容 |
 | --- | --- |
 | Base URL | `http://127.0.0.1:8317/v1` |
-| API Key | “运行总览”中的本地密钥 |
-| 模型 | `/v1/models` 返回的 `id` |
+| API Key | "运行总览"中的密钥（可复制/重新生成） |
+| 模型 | 模型页列表中的 `config_name` |
 
-默认关闭窗口会最小化到托盘；完全退出请在托盘菜单中选择“退出”。
+## 使用环境
 
-健康检查：`GET http://127.0.0.1:8317/health`，无需密钥。
+- Windows 10/11 x64
+- 当前 Windows 用户已安装并登录 TRAE SOLO CN
+- 能连接 Trae 上游服务
 
-API 支持 `Authorization: Bearer <key>` 和 `X-API-Key: <key>`。开启“任意 Key”会跳过鉴权，局域网使用时不建议开启。
-
-## API
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/health` | 健康检查，无需鉴权 |
-| GET | `/v1/models` | 当前账号可用模型 |
-| POST | `/v1/chat/completions` | Chat Completions |
-| POST | `/v1/responses` | Responses |
-| GET | `/v1/status` | 服务和账号状态 |
-| OPTIONS | `/v1/*` | 浏览器跨域预检 |
-
-## 兼容范围
-
-- 支持文本、多轮对话、图片输入（能力取决于上游模型）、工具调用和 SSE。
-- Chat Completions 支持 `reasoning_content`；Responses 支持 reasoning summary 和 `previous_response_id`。
-- `stop` 由本地截断正文，最多 4 条；上游仍可能继续消耗额度。
-- `previous_response_id` 默认只保留最近 64 个响应，重启或淘汰后会返回 `previous_response_not_found`。
-- 可通过 `responses.sessionCachePersist` 持久化文本和工具历史，图片不会保存。
-
-以下功能当前不提供或不保证语义一致：
-
-- 严格 JSON Schema 结构化输出
-- `temperature`、`top_p`、`seed`、`n`、`max_tokens`、`max_completion_tokens`、`max_output_tokens` 控制
-- `background` 后台任务及响应查询、取消接口
-- OpenAI 托管的 web search、file search、code interpreter
-- `input_file`/PDF、音频、Files、Embeddings、Images、Realtime、Batch 等接口
-
-部分未知字段会被忽略；依赖严格参数语义的客户端请先验证。
-
-## 配置
-
-配置文件：EXE 同目录的 `config.json`。首次运行自动生成，也可以使用 `--config` 指定路径。
-
-| 字段 | 默认值 | 说明 |
-| --- | --- | --- |
-| `service.port` | `8317` | HTTP 端口 |
-| `service.allowLan` | `false` | 开启后监听 `0.0.0.0` |
-| `service.allowAnyApiKey` | `false` | 跳过 API Key 校验 |
-| `service.maxConcurrentPerAccount` | `2` | 每账号并发数，范围 1～8 |
-| `responses.sessionCacheSize` | `64` | Responses 会话缓存数量 |
-| `responses.sessionCachePersist` | `false` | 是否保存会话到磁盘 |
-| `logging.level` | `info` | 日志级别 |
-| `logging.enabled` | `true` | 开启日志，可在偏好设置中即时切换 |
-
-开启局域网访问后，其他设备使用 `http://电脑IP:8317/v1`，并放行 Windows 防火墙端口。服务只提供 HTTP，请在可信网络中使用。
-
-## 命令行
+## 构建
 
 ```powershell
-.\TraeRelay.exe                 # 启动图形界面和 API
-.\TraeRelay.exe --tray         # 启动后常驻托盘
-.\TraeRelay.exe --serve        # 无图形界面运行 API
-.\TraeRelay.exe --config path  # 指定配置文件
-.\TraeRelay.exe --version      # 查看版本
+cd app
+flutter pub get
+flutter build windows --release --no-tree-shake-icons
+# 或直接运行 tool\build.ps1；产物在 build\windows\x64\runner\Release\
 ```
 
-`--serve` 不是 Windows 系统服务；默认启用单实例。
+> `--no-tree-shake-icons` 禁用图标字体裁剪：Flutter 的 tree-shake 会误删部分 `selectedIcon` 字形，导致侧边导航选中态图标空白。
 
-## 从源码构建
+安装包：安装 [Inno Setup](https://jrsoftware.org/isinfo.php) 后运行 `iscc dist_stage\installer.iss`。
 
-需要 Visual Studio 2022（桌面 C++）、Windows SDK 和 CMake 3.20+。
+## 上游同步
 
-```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release --parallel 4
+本仓库的 `src/`、`include/`、`CMakeLists.txt` 保留上游 C++ 原版（未被 Flutter 版使用，仅作对照与参照），可正常同步上游：
+
+```bash
+git pull upstream main
 ```
 
-产物：`dist/TraeRelay.exe`。全量重建：
-
-```powershell
-Remove-Item -LiteralPath .\build -Recurse
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release --parallel 4
-```
-
-## 仓库内容
-
-```text
-src/                    C++ 源码、资源和版本模板（上游原版）
-include/                头文件（上游原版）
-app/                    Flutter 完全重写版（FlTraeRelay）：Dart 实现后端 + Material 3 前端，单进程
-docs/images/预览.png    软件界面预览图
-CMakeLists.txt          CMake 构建配置
-README.md               项目说明
-```
-
-## 常见问题
-
-| 现象 | 处理方式 |
-| --- | --- |
-| 没有发现账号 | 确认当前用户已登录 Trae，然后重启 Relay |
-| 模型不可用 | 确认 Trae 账号权限和模型 ID，并查看 `logs/` |
-| 401 | 使用“运行总览”中的 API Key |
-| 503 | 检查账号是否已发现、并发数是否已满 |
-| 端口启动失败 | 更换端口或关闭占用端口的程序 |
-| 关闭窗口后仍在运行 | 程序默认最小化到托盘，在托盘菜单选择“退出” |
+Dart 重写版对应关系见 [app/README.md](app/README.md) 的模块对照表。
 
 ## 本地数据
 
 | 路径 | 内容 |
 | --- | --- |
-| `config.json` | 配置和 API Key |
-| `logs/` | 日志 |
-| `usage/` | 使用记录 |
-| `responses_sessions.json` | 开启持久化后的会话缓存 |
+| `config.json` | 配置和 API Key（前端直接读写，未知字段保留） |
+| `usage/usage-YYYYMMDD.jsonl` | 使用记录（一行一条请求） |
+| `usage/detail/usage-YYYYMMDD/*.json` | 每条请求的完整消息与回答详情 |
 
-发布时只需分发 EXE 和 README；不要上传自己的配置、日志、会话缓存或账号资料。
+发布时只需分发 Release 目录；不要上传自己的配置、日志、会话缓存或账号资料。
+
+## 许可与致谢
+
+- 上游 [sdn205/Trae-Relay](https://github.com/sdn205/Trae-Relay) 提供了全部协议逆向成果（tc 解密盐、solo 通道、模型目录、签到流程）
+- 本仓库在其基础上完成 Dart 移植与 Flutter 界面
