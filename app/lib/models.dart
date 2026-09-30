@@ -46,6 +46,10 @@ class RelayConfig {
   bool get autoContinue => _bool('defaults', 'autoContinue', true);
   set autoContinue(bool v) => _section('defaults')['autoContinue'] = v;
 
+  // ---------- startup ----------
+  bool get closeToTray => _bool('startup', 'closeToTray', false);
+  set closeToTray(bool v) => _section('startup')['closeToTray'] = v;
+
   // ---------- responses ----------
   bool get responsesEnabled => _bool('responses', 'enabled', true);
   set responsesEnabled(bool v) => _section('responses')['enabled'] = v;

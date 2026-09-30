@@ -145,6 +145,9 @@ class _SettingsPageState extends State<SettingsPage> {
       const SizedBox(height: 12),
       _switchRow('自动续跑', '回答被截断时自动继续（autoContinue）', cfg.autoContinue,
           (v) => setState(() => cfg.autoContinue = v)),
+      const SizedBox(height: 12),
+      _switchRow('关闭软件时最小化到托盘', '点关闭按钮时隐藏到系统托盘，HTTP 服务继续运行；从托盘菜单可真正退出',
+          cfg.closeToTray, (v) => setState(() => cfg.closeToTray = v)),
     ]);
   }
 

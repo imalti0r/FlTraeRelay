@@ -510,6 +510,20 @@ class AccountPool implements AccountProvider {
     if (!dir.existsSync()) dir.createSync(recursive: true);
   }
 
+  /// 按指针读取详情：date=YYYY-MM-DD，time=HHmmss（详情文件名前缀）。
+  Map<String, dynamic>? readDetailByPointer(String date, String time) {
+    final compact = date.replaceAll('-', '');
+    final rel = 'usage-$compact${Platform.pathSeparator}$time.json';
+    final f = File('$_usageDir${Platform.pathSeparator}detail${Platform.pathSeparator}$rel');
+    if (!f.existsSync()) return null;
+    try {
+      final decoded = jsonDecode(f.readAsStringSync());
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 读取一条记录的详情（请求消息与回复内容）。文件不存在返回 null。
   Map<String, dynamic>? readDetail(UsageRecord r) {
     if (r.detailFile.isEmpty) return null;

@@ -171,6 +171,7 @@ class AppState extends ChangeNotifier {
       final catalog = ModelCatalog();
       catalog.bind(pool);
       final server = RelayServer(pool: pool, catalog: catalog, settings: _settingsFrom(cfg));
+      _registerDebugHandlers(server);
       await server.start();
 
       _pool = pool;
@@ -191,6 +192,53 @@ class AppState extends ChangeNotifier {
       notice = '服务启动失败：$e（端口 ${cfg.servicePort} 可能被占用）';
       notifyListeners();
     }
+  }
+
+  /// 注册调试 API 处理器（/v1/debug/*，需 API Key）。
+  void _registerDebugHandlers(RelayServer server) {
+    server.debugGetters = {
+      // 当前 config.json（apiKey 打码）
+      'config': () {
+        final raw = <String, dynamic>{...?config?.raw};
+        final svc = raw['service'];
+        if (svc is Map) {
+          final key = svc['apiKey'];
+          if (key is String && key.length > 12) {
+            svc['apiKey'] = '${key.substring(0, 10)}***';
+          }
+        }
+        return raw;
+      },
+      // 模型目录细节
+      'models': () => {
+            'models': [
+              for (final m in modelCatalogViews)
+                {
+                  'id': m.id,
+                  'displayName': m.displayName,
+                  'maxMode': m.maxMode,
+                  'supportThinking': m.supportThinking,
+                  'effortOptions': m.effortOptions,
+                  'effortDefault': m.effortDefault,
+                  'vision': m.vision,
+                  'contextWindow': m.cwDefault,
+                  'rate': m.rateLabel,
+                }
+            ],
+          },
+    };
+
+    server.debugHandlers = {
+      // 全账号签到
+      'checkin': (_) async => {'ok': await checkinAll()},
+      // 刷新积分
+      'refresh-credits': (_) async {
+        await refreshCreditsAll();
+        return {'ok': true, 'accounts': [for (final a in accountViews) {'nickname': a.nickname, 'credits': a.credits}]};
+      },
+      // 回显（连通性测试）
+      'echo': (args) async => {'echo': args, 'time': DateTime.now().toIso8601String()},
+    };
   }
 
   RelaySettings _settingsFrom(RelayConfig cfg) {

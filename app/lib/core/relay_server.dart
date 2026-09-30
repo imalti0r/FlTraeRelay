@@ -87,11 +87,18 @@ class ResolvedSettings {
 class RelayServer {
   RelayServer({required this.pool, required this.catalog, required this.settings});
 
+  /// 调试扩展回调：由宿主（AppState）注入，key → JSON 值。
+  /// GET  /v1/debug/<key>     取数据
+  /// POST /v1/debug/<key>     执行动作（body 作参数）
+  Map<String, Future<Map<String, dynamic>> Function(Map<String, dynamic> args)>? debugHandlers;
+  Map<String, Map<String, dynamic> Function()>? debugGetters;
+
   final AccountPool pool;
   final ModelCatalog catalog;
   RelaySettings settings;
 
   HttpServer? _server;
+  final DateTime _startedAt = DateTime.now();
   bool get running => _server != null;
 
   /// 状态快照（给 /v1/status）。
@@ -141,7 +148,7 @@ class RelayServer {
         return;
       }
       if (req.method == 'OPTIONS' &&
-          (p == '/v1/models' || p == '/v1/status' || p == '/v1/chat/completions' || p == '/v1/responses')) {
+          p.startsWith('/v1/')) {
         req.response.statusCode = 200;
         _setCors(req);
         await req.response.close();
@@ -149,6 +156,10 @@ class RelayServer {
       }
       if (!_checkAuth(req)) {
         _jsonError(req, 401, 'authentication_error', 'API Key 无效', 'invalid_api_key');
+        return;
+      }
+      if (p.startsWith('/v1/debug/')) {
+        await _handleDebug(req, p.substring('/v1/debug/'.length));
         return;
       }
       if (req.method == 'GET' && p == '/v1/models') {
@@ -213,6 +224,113 @@ class RelayServer {
       ?'code': code,
     };
     _json(req, status, {'error': err});
+  }
+
+  // ---------- /v1/debug/*（调试 API，需鉴权） ----------
+
+  /// GET  /v1/debug/usage?date=YYYY-MM-DD   指定日使用记录
+  /// GET  /v1/debug/detail?date=&time=      某条记录的完整消息与回答
+  /// GET  /v1/debug/status        综合运行状态（服务/账号/模型数/今日用量）
+  /// GET  /v1/debug/config        当前 config.json 内容（apiKey 打码）
+  /// GET  /v1/debug/models        模型目录（含能力细节）
+  /// GET  /v1/debug/usage?date=YYYY-MM-DD   指定日使用记录
+  /// GET  /v1/debug/detail?date=&time=      某条记录的完整消息与回答
+  /// POST /v1/debug/checkin       全账号签到
+  /// POST /v1/debug/refresh-credits 刷新积分
+  /// POST /v1/debug/echo          回显请求体（连通性测试）
+  Future<void> _handleDebug(HttpRequest req, String key) async {
+    // --- 纯读取（走 debugGetters）---
+    if (req.method == 'GET') {
+      if (key == 'usage') {
+        final dateStr = req.uri.queryParameters['date'];
+        final day = dateStr != null ? DateTime.tryParse(dateStr) : DateTime.now();
+        if (day == null) {
+          _jsonError(req, 400, 'invalid_request_error', 'date 格式应为 YYYY-MM-DD');
+          return;
+        }
+        final records = pool.usagePage(day);
+        _json(req, 200, {
+          'date': dateStr ?? DateTime.now().toIso8601String().substring(0, 10),
+          'count': records.length,
+          'records': [
+            for (final r in records)
+              {
+                'time': r.ts.toIso8601String(),
+                'account': r.account,
+                'model': r.model,
+                'endpoint': r.endpoint,
+                'tokensIn': r.input,
+                'tokensOut': r.output,
+                'cache': r.cache,
+                'creditsDelta': r.creditsDelta,
+                'creditsKnown': r.creditsKnown,
+                'ms': r.ms,
+                'ok': r.ok,
+                'hasDetail': r.detailFile.isNotEmpty,
+                if (r.detailFile.isNotEmpty) 'detail': r.detailFile,
+              }
+          ],
+        });
+        return;
+      }
+      if (key == 'detail') {
+        final dateStr = req.uri.queryParameters['date'] ?? '';
+        final timeStr = req.uri.queryParameters['time'] ?? '';
+        if (dateStr.isEmpty || timeStr.isEmpty) {
+          _jsonError(req, 400, 'invalid_request_error', '需提供 date=YYYY-MM-DD 与 time=HHmmss');
+          return;
+        }
+        final detail = pool.readDetailByPointer(dateStr, timeStr);
+        if (detail == null) {
+          _jsonError(req, 404, 'invalid_request_error', '详情不存在：$dateStr/$timeStr');
+          return;
+        }
+        _json(req, 200, detail);
+        return;
+      }
+      if (key == 'status') {
+        await catalog.waitFirstAttempt();
+        final today = pool.usageToday();
+        _json(req, 200, {
+          ...statusJson(),
+          'models': catalog.cached.length,
+          'catalogError': catalog.cacheError.isEmpty ? null : catalog.cacheError,
+          'today': {'requests': today.requests, 'tokens': today.tokens, 'credits': today.credits},
+          'uptimeSec': DateTime.now().difference(_startedAt).inSeconds,
+        });
+        return;
+      }
+      final getter = debugGetters?[key];
+      if (getter != null) {
+        _json(req, 200, getter());
+        return;
+      }
+      _jsonError(req, 404, 'invalid_request_error', '未知调试键: $key');
+      return;
+    }
+    // --- 动作（走 debugHandlers）---
+    if (req.method == 'POST') {
+      final bodyText = await utf8.decoder.bind(req).join();
+      Map<String, dynamic> args = {};
+      if (bodyText.trim().isNotEmpty) {
+        try {
+          final decoded = jsonDecode(bodyText);
+          if (decoded is Map<String, dynamic>) args = decoded;
+        } catch (_) {}
+      }
+      final handler = debugHandlers?[key];
+      if (handler != null) {
+        try {
+          _json(req, 200, await handler(args));
+        } catch (e) {
+          _jsonError(req, 500, 'api_error', '调试动作失败: $e');
+        }
+        return;
+      }
+      _jsonError(req, 404, 'invalid_request_error', '未知调试动作: $key');
+      return;
+    }
+    _jsonError(req, 405, 'invalid_request_error', '方法不允许');
   }
 
   // ---------- /v1/models ----------

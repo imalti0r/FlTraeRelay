@@ -1,4 +1,4 @@
-#include "flutter_window.h"
+﻿#include "flutter_window.h"
 
 #include <optional>
 
@@ -36,10 +36,35 @@ bool FlutterWindow::OnCreate() {
   // window is shown. It is a no-op if the first frame hasn't completed yet.
   flutter_controller_->ForceRedraw();
 
+  // 托盘：与 Dart 侧建立 MethodChannel；"关闭时最小化到托盘"由 Dart 推送开关。
+  auto messenger = flutter_controller_->engine()->messenger();
+  tray_.Initialize(GetHandle(), [this]() {}, []() {});
+  auto channel = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+      messenger, "fltrae_relay/tray",
+      &flutter::StandardMethodCodec::GetInstance());
+  channel->SetMethodCallHandler(
+      [this](const auto& call, auto result) {
+        if (call.method_name() == "setEnabled") {
+          bool enabled = false;
+          const auto* args = std::get_if<bool>(call.arguments());
+          if (args) enabled = *args;
+          tray_.set_close_to_tray(enabled);
+          result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "hideToTray") {
+          tray_.HideToTray(GetHandle());
+          result->Success(flutter::EncodableValue(true));
+        } else {
+          result->NotImplemented();
+        }
+      });
+  // channel 生命周期由 tray_channel_ 持有
+  tray_channel_ = std::move(channel);
+
   return true;
 }
 
 void FlutterWindow::OnDestroy() {
+  tray_.Dispose();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -61,9 +86,21 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     }
   }
 
+  if (tray_.HandleMessage(hwnd, message, wparam, lparam)) {
+    return 0;
+  }
+
   switch (message) {
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
+      break;
+    case WM_CLOSE:
+      // "关闭时最小化到托盘"开启时：拦截关闭，隐藏到托盘继续运行
+      // （内嵌 HTTP 服务不中断）。
+      if (tray_.close_to_tray()) {
+        tray_.HideToTray(hwnd);
+        return 0;
+      }
       break;
   }
 

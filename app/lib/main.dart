@@ -45,11 +45,30 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _index = 0;
+  static const _trayChannel = MethodChannel('fltrae_relay/tray');
 
   @override
   void initState() {
     super.initState();
     widget.app.init();
+    // 监听"关闭最小化到托盘"开关：设置变更或后端重启后推送到原生层
+    widget.app.addListener(_pushTraySetting);
+  }
+
+  Future<void> _pushTraySetting() async {
+    final cfg = widget.app.config;
+    if (cfg == null) return;
+    try {
+      await _trayChannel.invokeMethod<bool>('setEnabled', cfg.closeToTray);
+    } on MissingPluginException {
+      // 非 Windows 平台或通道未就绪：忽略
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    widget.app.removeListener(_pushTraySetting);
+    super.dispose();
   }
 
   @override
