@@ -177,28 +177,42 @@ class _OverviewPageState extends State<OverviewPage> {
         expiryText = '$expiryText（剩 ${remain.inDays + 1} 天）';
       }
     }
+    final stateText = a.disabled
+        ? '已停用'
+        : (a.busy ? '忙碌（${a.active} 个并发请求）' : '正常');
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Icon(Icons.circle, size: 10, color: color),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
+          // 账号信息（两行：昵称+积分 | 状态+到期）
           Expanded(
             child: Opacity(
               opacity: a.disabled ? 0.45 : 1,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(a.nickname, style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Text(a.nickname, style: theme.textTheme.titleMedium),
+                      const SizedBox(width: 10),
+                      Text(
+                        '积分 ${a.credits.toStringAsFixed(2)}',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
                   Row(
                     children: [
                       Text(
-                        a.disabled
-                            ? '已停用'
-                            : (a.busy
-                                ? '忙碌（${a.active} 个并发请求）'
-                                : '正常'),
+                        stateText,
                         style: theme.textTheme.bodySmall?.copyWith(
                             color: a.disabled
                                 ? theme.colorScheme.outline
@@ -219,30 +233,21 @@ class _OverviewPageState extends State<OverviewPage> {
               ),
             ),
           ),
-          // 启用/停用
-          Tooltip(
-            message: a.disabled ? '启用该账号' : '停用该账号（调度跳过）',
-            child: Switch(
-              value: !a.disabled,
-              onChanged: (on) =>
-                  widget.app.setAccountDisabled(a.id, !on),
-            ),
-          ),
-          // 删除 / 恢复
+          const SizedBox(width: 12),
+          // 操作区：删除 | 启用开关（垂直居中，一行排开）
           IconButton(
-            tooltip: a.disabled ? '删除该账号（可从已删除列表恢复）' : '先停用后才能删除',
+            tooltip: a.disabled ? '删除该账号' : '先停用后才能删除',
             icon: Icon(
               Icons.delete_outline,
-              color: a.disabled ? theme.colorScheme.error : null,
+              size: 20,
+              color: a.disabled ? theme.colorScheme.error : theme.colorScheme.outline,
             ),
-            onPressed: a.disabled
-                ? () => _confirmDelete(a)
-                : null,
+            onPressed: a.disabled ? () => _confirmDelete(a) : null,
           ),
-          Chip(
-            avatar: Icon(Icons.workspace_premium_outlined,
-                size: 16, color: theme.colorScheme.onSecondaryContainer),
-            label: Text('积分 ${a.credits.toStringAsFixed(2)}'),
+          const SizedBox(width: 4),
+          Switch(
+            value: !a.disabled,
+            onChanged: (on) => widget.app.setAccountDisabled(a.id, !on),
           ),
         ],
       ),
