@@ -122,6 +122,9 @@ class AppState extends ChangeNotifier {
   AccountPool? _pool;
   ModelCatalog? _catalog;
   Timer? _pollTimer;
+  StreamSubscription<FileSystemEvent>? _configWatchSub;
+  Timer? _configReloadDebounce;
+  String _configSignature = '';
 
   /// 数据目录：%APPDATA%\FlTraeRelay（config.json、accounts/ 账号快照、
   /// usage/ 使用记录都落在这里）。APPDATA 不可用时退回 exe 同目录。
@@ -147,6 +150,7 @@ class AppState extends ChangeNotifier {
   Future<void> init() async {
     await _loadConfig();
     await startBackend();
+    _watchConfigFile();
   }
 
   Future<void> _loadConfig() async {
@@ -161,10 +165,88 @@ class AppState extends ChangeNotifier {
         config!.apiKey = RelayConfig.genApiKey();
         await saveConfig(silent: true);
       }
+      _configSignature = jsonEncode(config!.raw);
     } catch (e) {
       config = RelayConfig(<String, dynamic>{});
       notice = '配置读取失败，已使用默认配置：$e';
     }
+  }
+
+  // ---------- 配置热加载 ----------
+
+  /// 监视 config.json：外部编辑保存后自动重载并热应用到运行中的服务，
+  /// 无需重启程序。程序自己 saveConfig 写盘触发的事件经签名比对短路。
+  void _watchConfigFile() {
+    try {
+      _configWatchSub = Directory(dataDir).watch(events: FileSystemEvent.all).listen((event) {
+        if (!event.path.endsWith('config.json')) return;
+        _configReloadDebounce?.cancel();
+        _configReloadDebounce =
+            Timer(const Duration(milliseconds: 800), _reloadConfigIfChanged);
+      }, onError: (_) {});
+    } catch (_) {
+      // 目录监视不可用：退回旧行为（改配置需重启）
+    }
+  }
+
+  Future<void> _reloadConfigIfChanged() async {
+    try {
+      final f = File(configPath);
+      if (!f.existsSync()) return;
+      final decoded = jsonDecode(f.readAsStringSync());
+      if (decoded is! Map<String, dynamic>) return;
+      final sig = jsonEncode(decoded);
+      if (sig == _configSignature) return; // 自己保存的写盘事件，跳过
+      _configSignature = sig;
+      await _applyHotConfig(decoded);
+    } catch (_) {
+      // 半截写入或非法 JSON：忽略，等下一次保存事件
+    }
+  }
+
+  /// 把新配置热应用到运行中的 pool / server。仅 host/port/allowLan 变化时重绑端口。
+  Future<void> _applyHotConfig(Map<String, dynamic> raw) async {
+    final old = config;
+    final cfg = RelayConfig(raw);
+    if (cfg.apiKey.isEmpty) cfg.apiKey = old?.apiKey ?? RelayConfig.genApiKey();
+    // IDE 版本头是启动时从本机 Trae 探测的，不落盘，热加载时继承
+    cfg.ideVersion = old?.ideVersion ?? '';
+    cfg.ideVersionCode = old?.ideVersionCode ?? '';
+    config = cfg;
+
+    _pool?.updateSettings(
+      maxConcurrentPerAccount: cfg.maxConcurrentPerAccount,
+      minRequestIntervalMs: 0,
+      poolSelectBy: cfg.poolSelectBy,
+      ideVersion: cfg.ideVersion,
+      ideVersionCode: cfg.ideVersionCode,
+      checkinEnabled: cfg.checkinEnabled,
+      checkinHour: cfg.checkinHour,
+      checkinMinute: cfg.checkinMinute,
+      disabledAccountIds: cfg.disabledAccounts.toSet(),
+      deletedAccountIds: cfg.deletedAccounts.toSet(),
+    );
+
+    final server = _server;
+    if (server != null) {
+      final next = _settingsFrom(cfg);
+      final rebind = server.settings.port != next.port ||
+          server.settings.host != next.host ||
+          server.settings.allowLan != next.allowLan;
+      server.settings = next;
+      if (rebind) {
+        try {
+          await server.stop();
+          await server.start();
+          notice = null;
+        } catch (e) {
+          notice = '配置已热加载，但监听 ${next.host}:${cfg.servicePort} 失败：$e';
+        }
+      }
+    }
+    configDirty = false;
+    unawaited(pushTraySetting());
+    notifyListeners();
   }
 
   Future<void> startBackend() async {
@@ -515,6 +597,8 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _stopPolling();
+    _configReloadDebounce?.cancel();
+    _configWatchSub?.cancel();
     _server?.stop();
     _catalog?.stop();
     _pool?.dispose();
