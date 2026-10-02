@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import 'account_snapshot.dart';
 import 'auth.dart';
 import 'crypto_x.dart';
 import 'model_caps.dart';
@@ -121,6 +122,7 @@ class AccountPool implements AccountProvider {
 
   final http.Client _client = http.Client();
   final List<Account> _accounts = [];
+  late AccountSnapshotStore _snapshots = AccountSnapshotStore(dataDir);
 
   int _rr = 0;
   int _maxConcurrentPerAccount = 2;
@@ -154,38 +156,76 @@ class AccountPool implements AccountProvider {
 
   // ---------- 发现 ----------
 
+  /// 发现账号并合并私有快照：
+  /// 1. 扫描当前客户端登录态（最新鲜），每个账号快照到 accounts/ 私有存储；
+  /// 2. 加载全部快照——客户端切号后，历史账号从快照恢复，多账号共存；
+  /// 3. 合并去重（按 userId），当前登录态覆盖同 userId 的旧快照。
   void autoDiscover({bool force = false}) {
     if (_accounts.isNotEmpty && !force) return;
     if (force) _accounts.clear();
-    final editions = discoverEditions();
-    final seenIds = <String>{};
-    for (final ed in editions) {
-      final acc = Account();
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final merged = <String, Account>{};
+
+    // 1) 当前客户端登录态（优先，信息最新）
+    for (final ed in discoverEditions()) {
       final (err, auth) = readAuth(ed.userDir);
-      if (auth == null) {
-        continue;
-      }
-      acc.auth = auth;
-      acc.machineId = readMachineId(ed.userDir);
-      acc.deviceId = readAhaDeviceId(ed.userDir);
+      if (auth == null) continue;
+      final acc = Account()
+        ..auth = auth
+        ..editionId = ed.id
+        ..machineId = readMachineId(ed.userDir)
+        ..deviceId = readAhaDeviceId(ed.userDir);
       if (acc.deviceId.isEmpty) acc.deviceId = readDeviceId(ed.userDir);
-      acc.editionId = ed.id;
-      acc.nickname = 'Trae-${acc.auth.userId.length > 4 ? acc.auth.userId.substring(acc.auth.userId.length - 4) : acc.auth.userId}';
       if (acc.machineId.isEmpty) {
-        acc.machineId = sha512Hex(utf8.encode('${acc.auth.userId}${acc.auth.accessToken}')).substring(0, 32);
+        acc.machineId =
+            sha512Hex(utf8.encode('${acc.auth.userId}${acc.auth.accessToken}')).substring(0, 32);
       }
       if (acc.deviceId.isEmpty) acc.deviceId = acc.machineId;
-      // 同一 userId 在多个发行版登录视为同一账号，只保留先发现的
-      if (!seenIds.add(acc.auth.userId)) {
-        continue;
-      }
-      // 用户已删除的账号不再加入
-      if (_deletedIds.contains(acc.id)) {
-        continue;
-      }
-      _accounts.add(acc);
+      acc.nickname = _nicknameFor(acc.auth.userId);
+      merged[acc.auth.userId] = acc;
+      // 快照到私有存储（凭据与设备指纹齐全，切号后可恢复）
+      _snapshots.save(
+        userId: acc.auth.userId,
+        auth: acc.auth,
+        machineId: acc.machineId,
+        deviceId: acc.deviceId,
+        editionId: acc.editionId,
+      );
     }
+
+    // 2) 私有快照：恢复历史账号（当前登录态已存在的跳过）
+    for (final snap in _snapshots.loadAll()) {
+      if (merged.containsKey(snap.userId)) continue;
+      final acc = Account()
+        ..auth = snap.auth
+        ..editionId = snap.editionId
+        ..machineId = snap.machineId.isEmpty
+            ? sha512Hex(utf8.encode('${snap.auth.userId}${snap.auth.accessToken}')).substring(0, 32)
+            : snap.machineId
+        ..deviceId = snap.deviceId.isEmpty ? snap.machineId : snap.deviceId
+        ..nickname = _nicknameFor(snap.userId);
+      // 快照里的 token 可能已过期：标一下，acquire 前的 ensureFreshToken 会刷
+      if (acc.auth.expiredTs != 0 && acc.auth.expiredTs < now) {
+        // 过期账号仍加入池子：刷新成功即可用，失败由调度隔离
+      }
+      merged[snap.userId] = acc;
+    }
+
+    // 3) 应用删除表
+    for (final entry in merged.entries.toList()) {
+      if (_deletedIds.contains('${entry.value.editionId}:${entry.key}') ||
+          _deletedIds.contains(entry.key)) {
+        merged.remove(entry.key);
+      }
+    }
+
+    _accounts
+      ..clear()
+      ..addAll(merged.values);
   }
+
+  String _nicknameFor(String userId) =>
+      'Trae-${userId.length > 4 ? userId.substring(userId.length - 4) : userId}';
 
   // ---------- 配置推送 ----------
 
@@ -306,10 +346,12 @@ class AccountPool implements AccountProvider {
   /// 启用账号。
   void enableAccount(String accountId) => _disabledIds.remove(accountId);
 
-  /// 从池中移除账号（重新发现时会按删除表跳过）。
+  /// 从池中移除账号（重新发现时会按删除表跳过），并删除私有快照。
   void removeAccount(String accountId) {
     _disabledIds.add(accountId);
     _accounts.removeWhere((a) => a.id == accountId);
+    final uid = accountId.contains(':') ? accountId.split(':')[1] : accountId;
+    _snapshots.delete(uid);
   }
 
   /// 账号是否被停用。
