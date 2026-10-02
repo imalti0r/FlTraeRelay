@@ -176,7 +176,8 @@ class _SettingsPageState extends State<SettingsPage> {
           const Text('账号选择策略'),
           SegmentedButton<String>(
             segments: const [
-              ButtonSegment(value: 'credits', label: Text('积分优先')),
+              ButtonSegment(value: 'credits', label: Text('余额优先')),
+              ButtonSegment(value: 'expiry', label: Text('到期优先')),
               ButtonSegment(value: 'roundRobin', label: Text('轮询')),
             ],
             selected: {cfg.poolSelectBy},

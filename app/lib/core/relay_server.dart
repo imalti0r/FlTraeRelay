@@ -122,9 +122,11 @@ class RelayServer {
             {
               'nickname': a.nickname,
               'edition': a.editionId,
+              'userId': a.auth.userId,
               'credits': a.credits,
               'active': a.active,
               'lastUsed': a.lastUsedTs,
+              'expiredTs': a.expiredTs,
             }
         ],
       };

@@ -158,6 +158,23 @@ class _OverviewPageState extends State<OverviewPage> {
   Widget _accountTile(AccountView a) {
     final theme = Theme.of(context);
     final color = a.busy ? theme.colorScheme.tertiary : theme.colorScheme.primary;
+    // 到期提示：7 天内临近到期标橙，已到期标红
+    final expired = a.expiredDate;
+    String? expiryText;
+    Color? expiryColor;
+    if (expired != null) {
+      final remain = expired.difference(DateTime.now());
+      final two = (int n) => n.toString().padLeft(2, '0');
+      expiryText =
+          '到期 ${expired.year}-${two(expired.month)}-${two(expired.day)}';
+      if (remain.inDays < 0) {
+        expiryColor = theme.colorScheme.error;
+        expiryText = '已到期 · $expiryText';
+      } else if (remain.inDays < 7) {
+        expiryColor = theme.colorScheme.tertiary;
+        expiryText = '$expiryText（剩 ${remain.inDays + 1} 天）';
+      }
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -170,15 +187,29 @@ class _OverviewPageState extends State<OverviewPage> {
               children: [
                 Text(a.nickname, style: theme.textTheme.titleLarge),
                 const SizedBox(height: 2),
-                Text(
-                  a.busy ? '忙碌（${a.active} 个并发请求）' : '正常',
-                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                Row(
+                  children: [
+                    Text(
+                      a.busy ? '忙碌（${a.active} 个并发请求）' : '正常',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    ),
+                    if (expiryText != null) ...[
+                      const SizedBox(width: 10),
+                      Text(
+                        expiryText,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                            color: expiryColor ?? theme.colorScheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
           ),
           Chip(
-            avatar: Icon(Icons.workspace_premium_outlined, size: 16, color: theme.colorScheme.onSecondaryContainer),
+            avatar: Icon(Icons.workspace_premium_outlined,
+                size: 16, color: theme.colorScheme.onSecondaryContainer),
             label: Text('积分 ${a.credits.toStringAsFixed(2)}'),
           ),
         ],

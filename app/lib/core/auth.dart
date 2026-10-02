@@ -44,4 +44,10 @@ class Account {
   int lastUsedTs = 0;
   int lastRequestTsMs = 0;
   bool creditsFresh = false;
+
+  // 到期时间（秒级，0=未知）——调度"到期优先"按它排序
+  int get expiredTs => auth.expiredTs;
+
+  /// 唯一标识：发行版 + userId（同名账号去重用）。
+  String get id => '$editionId:${auth.userId}';
 }

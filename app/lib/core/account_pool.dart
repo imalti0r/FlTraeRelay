@@ -155,6 +155,7 @@ class AccountPool implements AccountProvider {
   void autoDiscover() {
     if (_accounts.isNotEmpty) return;
     final editions = discoverEditions();
+    final seenIds = <String>{};
     for (final ed in editions) {
       final acc = Account();
       final (err, auth) = readAuth(ed.userDir);
@@ -171,6 +172,10 @@ class AccountPool implements AccountProvider {
         acc.machineId = sha512Hex(utf8.encode('${acc.auth.userId}${acc.auth.accessToken}')).substring(0, 32);
       }
       if (acc.deviceId.isEmpty) acc.deviceId = acc.machineId;
+      // 同一 userId 在多个发行版登录视为同一账号，只保留先发现的
+      if (!seenIds.add(acc.auth.userId)) {
+        continue;
+      }
       _accounts.add(acc);
     }
   }
@@ -231,11 +236,33 @@ class AccountPool implements AccountProvider {
     final now = DateTime.now();
     final avail = [..._accounts];
     Account picked;
-    if (_poolSelectBy == 'roundRobin') {
-      picked = avail[_rr++ % avail.length];
-    } else {
-      avail.sort((a, b) => b.credits.compareTo(a.credits));
-      picked = avail.first;
+    switch (_poolSelectBy) {
+      case 'roundRobin':
+        // 轮询：从 _rr 起找第一个并发未满的
+        picked = avail[_rr % avail.length];
+        for (var i = 0; i < avail.length; i++) {
+          final cand = avail[(_rr + i) % avail.length];
+          if (cand.active < _maxConcurrentPerAccount) {
+            picked = cand;
+            _rr = (_rr + i + 1) % avail.length;
+            break;
+          }
+        }
+        break;
+      case 'expiry':
+        // 到期优先：token 最先过期的先用（未知的排最后），
+        // 避免"临期账号额度作废浪费"。
+        int expKey(Account a) =>
+            a.auth.expiredTs == 0 ? 0x7FFFFFFFFFFFFFFF : a.auth.expiredTs;
+        avail.sort((a, b) => expKey(a).compareTo(expKey(b)));
+        picked = avail.first;
+        break;
+      case 'credits':
+      default:
+        // 余额优先：积分降序，未知(-1)排后
+        avail.sort((a, b) => b.credits.compareTo(a.credits));
+        picked = avail.first;
+        break;
     }
     // 最小请求间隔
     if (_minRequestIntervalMs > 0 && picked.lastRequestTsMs > 0) {

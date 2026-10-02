@@ -27,12 +27,18 @@ class AccountView {
       : nickname = a.nickname,
         edition = a.editionId,
         credits = a.credits,
-        active = a.active;
+        active = a.active,
+        expiredTs = a.expiredTs;
   final String nickname;
   final String edition;
   final double credits;
   final int active;
+  final int expiredTs;
   bool get busy => active > 0;
+
+  /// 到期时间（未知返回 null）。
+  DateTime? get expiredDate =>
+      expiredTs == 0 ? null : DateTime.fromMillisecondsSinceEpoch(expiredTs * 1000);
 }
 
 class UsageRow {

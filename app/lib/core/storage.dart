@@ -86,13 +86,16 @@ bool _bytesEqual(Uint8List a, Uint8List b) {
   return true;
 }
 
-/// 发现本机已登录的 Trae 发行版。仅使用当前 Trae SOLO CN 客户端登录的账号：
-/// 其他发行版（Trae CN / Trae / Trae Work / 国际版）的账号不发现、不显示、不使用。
+/// 发现本机已登录的 Trae 发行版（多账号：五个发行版全部扫描）。
 List<TraeEdition> discoverEditions() {
   final base = _appDataDir();
   if (base.isEmpty) return const [];
   const dirs = {
+    'Trae CN': 'cn',
     'TRAE SOLO CN': 'solo',
+    'Trae Work CN': 'work',
+    'Trae': 'sg',
+    'TRAE SOLO': 'solo-sg',
   };
   final out = <TraeEdition>[];
   for (final entry in dirs.entries) {
