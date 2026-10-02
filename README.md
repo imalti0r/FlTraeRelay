@@ -42,7 +42,7 @@ Trae Relay 的 **Flutter 完全重写版**。将上游 [sdn205/Trae-Relay](https
 ## 快速开始
 
 1. 安装并登录 TRAE SOLO CN，确认能正常对话
-2. 启动 FlTraeRelay——首次运行自动在后端 exe 同目录生成 `config.json` 并生成 API Key
+2. 启动 FlTraeRelay——首次运行自动在 `%APPDATA%\FlTraeRelay` 生成 `config.json` 并生成 API Key
 3. 客户端配置：
 
 | 配置项 | 内容 |
@@ -82,9 +82,12 @@ Dart 重写版对应关系见 [app/README.md](app/README.md) 的模块对照表�
 
 ## 本地数据
 
+全部位于 `%APPDATA%\FlTraeRelay`（即 `C:\Users\<用户名>\AppData\Roaming\FlTraeRelay`）：
+
 | 路径 | 内容 |
 | --- | --- |
 | `config.json` | 配置和 API Key（前端直接读写，未知字段保留） |
+| `accounts/<userId>.json` | 账号私有快照（完整凭据 + 设备指纹，切号后多账号共存） |
 | `usage/usage-YYYYMMDD.jsonl` | 使用记录（一行一条请求） |
 | `usage/detail/usage-YYYYMMDD/*.json` | 每条请求的完整消息与回答详情 |
 

@@ -1,5 +1,5 @@
 // account_snapshot.dart - 账号私有存储：把发现的账号完整凭据快照到
-// exe 同目录 accounts/<id>.json，实现 Trae 客户端切号后多账号共存。
+// %APPDATA%\FlTraeRelay\accounts/<id>.json，实现 Trae 客户端切号后多账号共存。
 //
 // 快照内容：AuthData 全字段（含 refreshToken，切换后可静默续期）+
 // machineId/deviceId（保设备指纹稳定）。加载时合并：快照 ∪ 当前客户端登录态，
@@ -13,7 +13,7 @@ import 'auth.dart';
 class AccountSnapshotStore {
   AccountSnapshotStore(this.baseDir);
 
-  /// 快照目录（exe 同目录/accounts）。
+  /// 快照目录（baseDir 下的 accounts/，baseDir 即 %APPDATA%\FlTraeRelay）。
   final String baseDir;
 
   String _dir() {

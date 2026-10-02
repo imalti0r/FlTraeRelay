@@ -123,9 +123,20 @@ class AppState extends ChangeNotifier {
   ModelCatalog? _catalog;
   Timer? _pollTimer;
 
+  /// 数据目录：%APPDATA%\FlTraeRelay（config.json、accounts/ 账号快照、
+  /// usage/ 使用记录都落在这里）。APPDATA 不可用时退回 exe 同目录。
   String get dataDir {
-    final exe = Platform.resolvedExecutable;
-    return File(exe).parent.path;
+    final appData = Platform.environment['APPDATA'] ?? '';
+    if (appData.length > 3) {
+      try {
+        final dir = '$appData\\FlTraeRelay';
+        Directory(dir).createSync(recursive: true);
+        return dir;
+      } catch (_) {
+        // AppData 不可写：退回 exe 同目录
+      }
+    }
+    return File(Platform.resolvedExecutable).parent.path;
   }
 
   String get configPath => '$dataDir\\config.json';

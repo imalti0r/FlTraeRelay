@@ -69,7 +69,7 @@ flutter build windows --release --no-tree-shake-icons
 
 Dart 重写后整个服务是**一个进程**（打开即用，无需安装 Python/Node/Docker）。Flutter Windows 的 Release 产物为 `fltrae_relay.exe` + `flutter_windows.dll` + `data\` 运行时文件——将整个 Release 目录打包分发即可；如需严格单文件，可用 Enigma Virtual Box 等打包工具把 dll 与 data 合并进 exe（不影响运行）。
 
-首次启动会在 exe 同目录生成 `config.json`（含自动生成的 API Key）、`usage\` 使用记录；`logs\` 日志目录由后端逻辑预留。
+首次启动会在 `%APPDATA%\FlTraeRelay` 生成 `config.json`（含自动生成的 API Key）、`accounts\` 账号私有快照与 `usage\` 使用记录。
 
 ## 兼容范围与差异（相对 C++ 版）
 

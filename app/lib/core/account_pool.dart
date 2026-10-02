@@ -116,7 +116,7 @@ class AccountPool implements AccountProvider {
     _usageDir = '$dataDir\\usage';
   }
 
-  /// 便携化数据目录（exe 同目录）。
+  /// 数据目录（%APPDATA%\FlTraeRelay，账号快照与使用记录都在其下）。
   final String dataDir;
   late String _usageDir;
 
