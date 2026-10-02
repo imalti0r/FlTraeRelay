@@ -23,17 +23,20 @@ const String _fallbackIdeVersionCode = '20260916';
 
 /// UI 视图模型（与 core 层解耦）。
 class AccountView {
-  AccountView._(Account a)
+  AccountView._(Account a, {required this.disabled})
       : nickname = a.nickname,
         edition = a.editionId,
         credits = a.credits,
         active = a.active,
-        expiredTs = a.expiredTs;
+        expiredTs = a.expiredTs,
+        id = a.id;
   final String nickname;
   final String edition;
   final double credits;
   final int active;
   final int expiredTs;
+  final String id;
+  final bool disabled;
   bool get busy => active > 0;
 
   /// 到期时间（未知返回 null）。
@@ -177,6 +180,8 @@ class AppState extends ChangeNotifier {
         checkinEnabled: cfg.checkinEnabled,
         checkinHour: cfg.checkinHour,
         checkinMinute: cfg.checkinMinute,
+        disabledAccountIds: cfg.disabledAccounts.toSet(),
+        deletedAccountIds: cfg.deletedAccounts.toSet(),
       );
       final catalog = ModelCatalog();
       catalog.bind(pool);
@@ -262,6 +267,33 @@ class AppState extends ChangeNotifier {
       },
       // 回显（连通性测试）
       'echo': (args) async => {'echo': args, 'time': DateTime.now().toIso8601String()},
+      // 账号管理：停用/启用/删除/恢复，参数 {"id": "solo:1234"}
+      'account-disable': (args) async {
+        final id = args['id']?.toString() ?? '';
+        if (id.isEmpty) return {'ok': false, 'error': '缺少 id'};
+        await setAccountDisabled(id, true);
+        return {'ok': true};
+      },
+      'account-enable': (args) async {
+        final id = args['id']?.toString() ?? '';
+        if (id.isEmpty) return {'ok': false, 'error': '缺少 id'};
+        await setAccountDisabled(id, false);
+        return {'ok': true};
+      },
+      'account-delete': (args) async {
+        final id = args['id']?.toString() ?? '';
+        if (id.isEmpty) return {'ok': false, 'error': '缺少 id'};
+        await deleteAccount(id);
+        return {'ok': true};
+      },
+      'account-restore': (args) async {
+        final id = args['id']?.toString() ?? '';
+        if (id.isEmpty) return {'ok': false, 'error': '缺少 id'};
+        await restoreAccount(id);
+        return {'ok': true, 'accounts': [for (final a in accountViews) a.id]};
+      },
+      // 已删除账号列表
+      'accounts-deleted': (_) async => {'deleted': deletedAccountIds},
       // 触发托盘退出链路（与托盘菜单"退出"等价）：仅调试用
       'tray-exit': (_) async {
         try {
@@ -325,6 +357,39 @@ class AppState extends ChangeNotifier {
   /// 读取一条使用记录的详情（请求消息与回复内容）。
   Map<String, dynamic>? readDetail(UsageRow row) => _pool?.readDetail(row._source);
 
+  // ---------- 账号管理 ----------
+
+  /// 停用 / 启用账号（写配置并同步池子调度）。
+  Future<void> setAccountDisabled(String id, bool disabled) async {
+    config?.setAccountDisabled(id, disabled);
+    if (disabled) {
+      _pool?.disableAccount(id);
+    } else {
+      _pool?.enableAccount(id);
+    }
+    await saveConfig();
+  }
+
+  /// 删除账号（写删除表、从池移除；重新发现不再加入）。
+  Future<void> deleteAccount(String id) async {
+    config?.deleteAccount(id);
+    _pool?.removeAccount(id);
+    await saveConfig();
+  }
+
+  /// 恢复已删除的账号（重新扫描登录态并入池，并同步停用表）。
+  Future<void> restoreAccount(String id) async {
+    config?.restoreAccount(id);
+    _pool?.autoDiscover(force: true);
+    for (final d in config?.disabledAccounts ?? const <String>[]) {
+      _pool?.disableAccount(d);
+    }
+    notifyListeners();
+  }
+
+  /// 已删除的账号 id 列表（UI 展示"恢复"入口用）。
+  List<String> get deletedAccountIds => config?.deletedAccounts ?? const [];
+
   /// 进程内数据已在 AccountPool 上，这里刷新今日统计并通知 UI。
   Future<void> refreshOnce() async {
     if (!backendRunning) return;
@@ -337,7 +402,10 @@ class AppState extends ChangeNotifier {
   List<AccountView> get accountViews {
     final pool = _pool;
     if (pool == null) return const [];
-    return [for (final a in pool.accounts) AccountView._(a)];
+    return [
+      for (final a in pool.accounts)
+        AccountView._(a, disabled: pool.isDisabled(a.id)),
+    ];
   }
 
   Future<bool> checkinAll() async {

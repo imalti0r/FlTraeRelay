@@ -126,6 +126,8 @@ class AccountPool implements AccountProvider {
   int _maxConcurrentPerAccount = 2;
   int _minRequestIntervalMs = 0;
   String _poolSelectBy = 'credits';
+  final Set<String> _disabledIds = {}; // 停用的账号 id（调度跳过）
+  final Set<String> _deletedIds = {};  // 已删除的账号 id（发现跳过）
   String _ideVersion = '';
   String _ideVersionCode = '';
   bool _checkinEnabled = true;
@@ -152,8 +154,9 @@ class AccountPool implements AccountProvider {
 
   // ---------- 发现 ----------
 
-  void autoDiscover() {
-    if (_accounts.isNotEmpty) return;
+  void autoDiscover({bool force = false}) {
+    if (_accounts.isNotEmpty && !force) return;
+    if (force) _accounts.clear();
     final editions = discoverEditions();
     final seenIds = <String>{};
     for (final ed in editions) {
@@ -176,6 +179,10 @@ class AccountPool implements AccountProvider {
       if (!seenIds.add(acc.auth.userId)) {
         continue;
       }
+      // 用户已删除的账号不再加入
+      if (_deletedIds.contains(acc.id)) {
+        continue;
+      }
       _accounts.add(acc);
     }
   }
@@ -191,10 +198,18 @@ class AccountPool implements AccountProvider {
     required bool checkinEnabled,
     required int checkinHour,
     required int checkinMinute,
+    Set<String> disabledAccountIds = const {},
+    Set<String> deletedAccountIds = const {},
   }) {
     _maxConcurrentPerAccount = maxConcurrentPerAccount.clamp(1, 8);
     _minRequestIntervalMs = minRequestIntervalMs;
     _poolSelectBy = poolSelectBy;
+    _disabledIds
+      ..clear()
+      ..addAll(disabledAccountIds);
+    _deletedIds
+      ..clear()
+      ..addAll(deletedAccountIds);
     _ideVersion = ideVersion;
     _ideVersionCode = ideVersionCode;
     _checkinEnabled = checkinEnabled;
@@ -234,7 +249,10 @@ class AccountPool implements AccountProvider {
   Account? _tryPick() {
     if (_accounts.isEmpty) return null;
     final now = DateTime.now();
-    final avail = [..._accounts];
+    final avail = [
+      ..._accounts.where((a) => !_disabledIds.contains(a.id)),
+    ];
+    if (avail.isEmpty) return null;
     Account picked;
     switch (_poolSelectBy) {
       case 'roundRobin':
@@ -281,6 +299,21 @@ class AccountPool implements AccountProvider {
     picked.lastRequestTsMs = now.millisecondsSinceEpoch;
     return picked;
   }
+
+  /// 停用账号（调度立即跳过；正在进行的请求不受影响）。
+  void disableAccount(String accountId) => _disabledIds.add(accountId);
+
+  /// 启用账号。
+  void enableAccount(String accountId) => _disabledIds.remove(accountId);
+
+  /// 从池中移除账号（重新发现时会按删除表跳过）。
+  void removeAccount(String accountId) {
+    _disabledIds.add(accountId);
+    _accounts.removeWhere((a) => a.id == accountId);
+  }
+
+  /// 账号是否被停用。
+  bool isDisabled(String accountId) => _disabledIds.contains(accountId);
 
   void release(Account acc, bool ok, int errorCode) {
     _leaseTimers.remove(acc)?.cancel();

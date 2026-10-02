@@ -86,24 +86,16 @@ bool _bytesEqual(Uint8List a, Uint8List b) {
   return true;
 }
 
-/// 发现本机已登录的 Trae 发行版（多账号：五个发行版全部扫描）。
+/// 发现本机已登录的 Trae 发行版。仅扫描 TRAE SOLO CN（当前支持的唯一发行版）。
 List<TraeEdition> discoverEditions() {
   final base = _appDataDir();
   if (base.isEmpty) return const [];
-  const dirs = {
-    'Trae CN': 'cn',
-    'TRAE SOLO CN': 'solo',
-    'Trae Work CN': 'work',
-    'Trae': 'sg',
-    'TRAE SOLO': 'solo-sg',
-  };
   final out = <TraeEdition>[];
-  for (final entry in dirs.entries) {
-    final userDir = '$base\\${entry.key}\\User';
-    final f = File('$userDir\\globalStorage\\storage.json');
-    if (f.existsSync()) {
-      out.add(TraeEdition(id: entry.value, userDir: userDir, label: entry.key));
-    }
+  const label = 'TRAE SOLO CN';
+  final userDir = '$base\\$label\\User';
+  final f = File('$userDir\\globalStorage\\storage.json');
+  if (f.existsSync()) {
+    out.add(TraeEdition(id: 'solo', userDir: userDir, label: label));
   }
   return out;
 }

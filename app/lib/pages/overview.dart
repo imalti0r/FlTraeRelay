@@ -157,12 +157,14 @@ class _OverviewPageState extends State<OverviewPage> {
 
   Widget _accountTile(AccountView a) {
     final theme = Theme.of(context);
-    final color = a.busy ? theme.colorScheme.tertiary : theme.colorScheme.primary;
+    final color = a.disabled
+        ? theme.colorScheme.outline
+        : (a.busy ? theme.colorScheme.tertiary : theme.colorScheme.primary);
     // 到期提示：7 天内临近到期标橙，已到期标红
     final expired = a.expiredDate;
     String? expiryText;
     Color? expiryColor;
-    if (expired != null) {
+    if (expired != null && !a.disabled) {
       final remain = expired.difference(DateTime.now());
       final two = (int n) => n.toString().padLeft(2, '0');
       expiryText =
@@ -182,30 +184,60 @@ class _OverviewPageState extends State<OverviewPage> {
           Icon(Icons.circle, size: 10, color: color),
           const SizedBox(width: 10),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(a.nickname, style: theme.textTheme.titleLarge),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Text(
-                      a.busy ? '忙碌（${a.active} 个并发请求）' : '正常',
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                    ),
-                    if (expiryText != null) ...[
-                      const SizedBox(width: 10),
+            child: Opacity(
+              opacity: a.disabled ? 0.45 : 1,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(a.nickname, style: theme.textTheme.titleLarge),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
                       Text(
-                        expiryText,
+                        a.disabled
+                            ? '已停用'
+                            : (a.busy
+                                ? '忙碌（${a.active} 个并发请求）'
+                                : '正常'),
                         style: theme.textTheme.bodySmall?.copyWith(
-                            color: expiryColor ?? theme.colorScheme.onSurfaceVariant),
+                            color: a.disabled
+                                ? theme.colorScheme.outline
+                                : theme.colorScheme.onSurfaceVariant),
                       ),
+                      if (expiryText != null) ...[
+                        const SizedBox(width: 10),
+                        Text(
+                          expiryText,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: expiryColor ??
+                                  theme.colorScheme.onSurfaceVariant),
+                        ),
+                      ],
                     ],
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
+          ),
+          // 启用/停用
+          Tooltip(
+            message: a.disabled ? '启用该账号' : '停用该账号（调度跳过）',
+            child: Switch(
+              value: !a.disabled,
+              onChanged: (on) =>
+                  widget.app.setAccountDisabled(a.id, !on),
+            ),
+          ),
+          // 删除 / 恢复
+          IconButton(
+            tooltip: a.disabled ? '删除该账号（可从已删除列表恢复）' : '先停用后才能删除',
+            icon: Icon(
+              Icons.delete_outline,
+              color: a.disabled ? theme.colorScheme.error : null,
+            ),
+            onPressed: a.disabled
+                ? () => _confirmDelete(a)
+                : null,
           ),
           Chip(
             avatar: Icon(Icons.workspace_premium_outlined,
@@ -215,6 +247,40 @@ class _OverviewPageState extends State<OverviewPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmDelete(AccountView a) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('删除账号 ${a.nickname}'),
+        content: const Text(
+            '将从账号池移除并记录到删除表，重启后不会被重新发现。\n如需恢复，可在"已删除"提示中选择恢复。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await widget.app.deleteAccount(a.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text('已删除 ${a.nickname}'),
+          action: SnackBarAction(
+            label: '撤销',
+            onPressed: () => widget.app.restoreAccount(a.id),
+          ),
+        ));
+    }
   }
 
   // ---------- 今日统计 ----------

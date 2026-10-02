@@ -50,6 +50,51 @@ class RelayConfig {
   bool get closeToTray => _bool('startup', 'closeToTray', false);
   set closeToTray(bool v) => _section('startup')['closeToTray'] = v;
 
+  // ---------- 账号管理 ----------
+  /// 停用的账号 id 列表（id = "edition:userId"）。停用不删除发现记录。
+  List<String> get disabledAccounts {
+    final v = _section('accounts')['disabled'];
+    if (v is List) return v.map((e) => e.toString()).toList();
+    return [];
+  }
+  set disabledAccounts(List<String> v) =>
+      _section('accounts')['disabled'] = v;
+
+  /// 已删除的账号 id（发现时跳过，避免再次加入）。
+  List<String> get deletedAccounts {
+    final v = _section('accounts')['deleted'];
+    if (v is List) return v.map((e) => e.toString()).toList();
+    return [];
+  }
+  set deletedAccounts(List<String> v) =>
+      _section('accounts')['deleted'] = v;
+
+  /// 停用 / 启用账号。
+  void setAccountDisabled(String accountId, bool disabled) {
+    final cur = disabledAccounts;
+    if (disabled) {
+      if (!cur.contains(accountId)) cur.add(accountId);
+    } else {
+      cur.remove(accountId);
+    }
+    disabledAccounts = cur;
+  }
+
+  /// 删除账号（加入删除表并从停用表移除，实现"删除后不再发现"）。
+  void deleteAccount(String accountId) {
+    final cur = deletedAccounts;
+    if (!cur.contains(accountId)) cur.add(accountId);
+    deletedAccounts = cur;
+    final dis = disabledAccounts..remove(accountId);
+    disabledAccounts = dis;
+  }
+
+  /// 恢复已删除账号（重新发现）。
+  void restoreAccount(String accountId) {
+    final cur = deletedAccounts..remove(accountId);
+    deletedAccounts = cur;
+  }
+
   // ---------- responses ----------
   bool get responsesEnabled => _bool('responses', 'enabled', true);
   set responsesEnabled(bool v) => _section('responses')['enabled'] = v;
