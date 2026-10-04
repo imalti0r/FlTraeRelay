@@ -85,6 +85,7 @@ class _UsagePageState extends State<UsagePage> {
                 )
               : Column(
                   children: [
+                    _headerTile(),
                     for (final r in records) _recordTile(r),
                   ],
                 ),
@@ -105,6 +106,42 @@ class _UsagePageState extends State<UsagePage> {
 
   String _two(int n) => n.toString().padLeft(2, '0');
 
+  /// 列表表头：与 _recordTile 行内各列对齐（同 padding 与列宽）。
+  Widget _headerTile() {
+    final theme = Theme.of(context);
+    final style = theme.textTheme.labelMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+      fontWeight: FontWeight.bold,
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const SizedBox(width: 26), // 状态图标 + 间距占位
+              SizedBox(width: 62, child: Text('时间', style: style)),
+              const SizedBox(width: 14),
+              Expanded(child: Text('模型', style: style)),
+              const SizedBox(width: 14),
+              Expanded(child: Text('账号', style: style)),
+              const SizedBox(width: 14),
+              Text('Token', style: style),
+              const SizedBox(width: 14),
+              SizedBox(width: 92, child: Text('积分', style: style, textAlign: TextAlign.right)),
+              SizedBox(width: 64, child: Text('耗时', style: style, textAlign: TextAlign.right)),
+            ],
+          ),
+          Divider(
+            height: 1,
+            indent: 26,
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _recordTile(UsageRow r) {
     final theme = Theme.of(context);
     final statusColor = r.ok ? theme.colorScheme.primary : theme.colorScheme.error;
@@ -118,15 +155,34 @@ class _UsagePageState extends State<UsagePage> {
               children: [
                 Icon(r.ok ? Icons.check_circle_outline : Icons.error_outline, size: 16, color: statusColor),
                 const SizedBox(width: 10),
-                Text(_hhmmss(r.ts), style: theme.textTheme.bodyMedium),
+                SizedBox(
+                  width: 62,
+                  child: Text(_hhmmss(r.ts), style: theme.textTheme.bodyMedium),
+                ),
                 const SizedBox(width: 14),
                 Expanded(
-                  child: Text(
-                    r.model,
-                    style: theme.textTheme.bodyMedium,
-                    overflow: TextOverflow.ellipsis,
+                  child: Tooltip(
+                    message: r.model,
+                    child: Text(
+                      r.model,
+                      style: theme.textTheme.bodyMedium,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Tooltip(
+                    message: r.account,
+                    child: Text(
+                      r.account,
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
                 Text(
                   '${r.input} / ${r.output}',
                   style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
