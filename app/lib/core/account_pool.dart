@@ -643,8 +643,8 @@ class AccountPool implements AccountProvider {
     }
   }
 
-  /// 读取指定日期的记录（时间倒序）。
-  List<UsageRecord> usagePage(DateTime day, [int limit = 500]) {
+  /// 读取指定日期的记录（时间倒序）；limit 为 null 时不截断。
+  List<UsageRecord> usagePage(DateTime day, [int? limit]) {
     _ensureUsageCache();
     final start = DateTime(day.year, day.month, day.day);
     final end = start.add(const Duration(days: 1));
@@ -652,7 +652,7 @@ class AccountPool implements AccountProvider {
     for (final r in _usageCache) {
       if (!r.ts.isBefore(start) && r.ts.isBefore(end)) {
         out.add(r);
-        if (out.length >= limit) break;
+        if (limit != null && out.length >= limit) break;
       }
     }
     return out;
