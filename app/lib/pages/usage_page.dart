@@ -1,6 +1,7 @@
 // usage_page.dart - 使用记录：按日期浏览进程内使用记录，展示汇总与明细。
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../services/backend.dart';
@@ -296,6 +297,9 @@ class _UsagePageState extends State<UsagePage> {
   }
 
   /// 点开一条记录：液态玻璃弹窗展示积分/耗时与具体发送的消息、回答内容。
+  /// 注意：不走 GlassDialog 的 title/message/actions——showCupertinoDialog 树里
+  /// 没有 Material 祖先，包内裸 TextStyle 的 Text 会渲染双黄下划线；全部内容
+  /// 放进 content，用本页主题样式显式着色。
   Future<void> _showDetail(UsageRow r) async {
     final theme = Theme.of(context);
     final detail = widget.app.readDetail(r);
@@ -304,106 +308,171 @@ class _UsagePageState extends State<UsagePage> {
       context: context,
       barrierDismissible: true,
       maxWidth: 560,
-      title: '${_hhmmss(r.ts)} · ${r.model}',
-      message: '积分 ${r.creditsKnown ? '-${r.creditsDelta.toStringAsFixed(2)}' : '--'}'
-          ' · 耗时 ${_secondsLabel(r.ms)}',
       content: ConstrainedBox(
-        // 长内容在玻璃弹窗内滚动，最高占窗口高度 62%。
-        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.62),
-        child: detail == null
-            ? Text(
-                '该记录没有保存详情（详情功能在本次更新后才有，或详情文件已被清理）。',
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              )
-            : DefaultTextStyle(
-                style: theme.textTheme.bodySmall!,
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    _detailSection(
-                      context,
-                      '发送的消息（${((detail['messages'] as List?) ?? []).length} 条）',
-                      _messagesWidgets(detail),
+        // 长内容在玻璃弹窗内滚动，最高占窗口高度 78%。
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.78),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '${_hhmmss(r.ts)} · ${r.model}',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '积分 ${r.creditsKnown ? '-${r.creditsDelta.toStringAsFixed(2)}' : '--'}'
+              ' · 耗时 ${_secondsLabel(r.ms)}',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            Flexible(
+              child: detail == null
+                  ? Text(
+                      '该记录没有保存详情（详情功能在本次更新后才有，或详情文件已被清理）。',
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    )
+                  : DefaultTextStyle(
+                      style: theme.textTheme.bodySmall!,
+                      child: _DetailContentView(detail: detail),
                     ),
-                    if ((detail['reasoning'] as String?)?.isNotEmpty == true)
-                      _detailSection(context, '思考过程（${(detail['reasoning'] as String).length} 字符）', [
-                        SelectableText(detail['reasoning'] as String),
-                      ]),
-                    if ((detail['text'] as String?)?.isNotEmpty == true)
-                      _detailSection(context, '回答内容（${(detail['text'] as String).length} 字符）', [
-                        SelectableText(detail['text'] as String),
-                      ]),
-                    if ((detail['toolCalls'] as List?)?.isNotEmpty == true)
-                      _detailSection(context, '工具调用', [
-                        for (final t in detail['toolCalls'] as List)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 6),
-                            child: SelectableText(
-                              t is Map
-                                  ? '${t['name']}(${t['arguments']})'
-                                  : t.toString(),
-                            ),
-                          ),
-                      ]),
-                  ],
+            ),
+            const SizedBox(height: 12),
+            Center(
+              child: GlassButton.custom(
+                onTap: () => Navigator.pop(context),
+                width: 120,
+                height: 40,
+                shape: const LiquidRoundedSuperellipse(borderRadius: 12),
+                child: Text(
+                  '关闭',
+                  style: theme.textTheme.labelLarge,
                 ),
               ),
-      ),
-      actions: [
-        GlassDialogAction(
-          label: '关闭',
-          isPrimary: true,
-          onPressed: () => Navigator.pop(context),
+            ),
+          ],
         ),
-      ],
+      ),
+      actions: const [],
     );
   }
 
   /// 耗时统一以秒展示，保留两位小数。
   String _secondsLabel(int ms) => '${(ms / 1000).toStringAsFixed(2)}s';
+}
 
-  /// messages 数组 → 每条消息一张卡（角色名 + 内容/工具调用）。
-  List<Widget> _messagesWidgets(Map<String, dynamic> detail) {
-    final msgs = (detail['messages'] as List?) ?? const [];
-    if (msgs.isEmpty) return [const Text('（无消息记录）')];
-    return [
-      for (final m in msgs)
-        if (m is Map)
-          Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(10),
+/// 详情正文：流式渐进渲染，避免超长对话一次性构建卡顿。
+///
+/// - 列表用 ListView.builder 惰性构建：条目只有滚进视口才创建；
+/// - 单条消息内容超过阈值先截断渲染，点"展开全部"再放开（SelectableText
+///   对几千字符的选区计算极慢，是长对话卡顿的第二来源）；
+/// - 思考/回答大文本同样先展示前 [_bigTextPreview] 字符。
+class _DetailContentView extends StatefulWidget {
+  const _DetailContentView({required this.detail});
+
+  final Map<String, dynamic> detail;
+
+  @override
+  State<_DetailContentView> createState() => _DetailContentViewState();
+}
+
+class _DetailContentViewState extends State<_DetailContentView> {
+  /// 单条消息内容超过该长度先截断（字符），点击展开后全量渲染。
+  static const _messagePreviewChars = 2000;
+
+  /// 思考/回答大文本首帧展示的字符数。
+  static const _bigTextPreview = 8000;
+
+  final Set<int> _expandedMessages = {};
+  bool _reasoningExpanded = false;
+  bool _textExpanded = false;
+  bool _toolCallsExpanded = false;
+
+  List<dynamic> get _messages => (widget.detail['messages'] as List?) ?? const [];
+  String? get _reasoning => widget.detail['reasoning'] as String?;
+  String? get _answerText => widget.detail['text'] as String?;
+  List<dynamic> get _toolCalls => (widget.detail['toolCalls'] as List?) ?? const [];
+
+  /// 列表总条目数：头部说明 1 + 消息 N + 思考 1 + 回答 1 + 工具调用 1。
+  int get _itemCount {
+    var n = 1 + _messages.length;
+    if (_reasoning?.isNotEmpty == true) n += 1;
+    if (_answerText?.isNotEmpty == true) n += 1;
+    if (_toolCalls.isNotEmpty) n += 1;
+    return n;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_messages.isEmpty && _reasoning?.isNotEmpty != true && _answerText?.isNotEmpty != true) {
+      return const Text('（无消息记录）');
+    }
+    return ListView.builder(
+      shrinkWrap: true,
+      // 预渲染一屏左右，滚动不露白
+      scrollCacheExtent: const ScrollCacheExtent.viewport(0.5),
+      itemCount: _itemCount,
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Text(
+              '发送的消息（${_messages.length} 条）',
+              style: Theme.of(context).textTheme.titleSmall,
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  (m['role'] ?? '').toString().toUpperCase(),
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.bold,
-                      ),
+          );
+        }
+        var i = index - 1;
+        if (i < _messages.length) {
+          final m = _messages[i];
+          return m is Map ? _messageCard(m, i) : const SizedBox.shrink();
+        }
+        i -= _messages.length;
+        if (_reasoning?.isNotEmpty == true && i == 0) {
+          return _detailSection(context, '思考过程（${_reasoning!.length} 字符）', [
+            _bigText(
+              _reasoning!,
+              expanded: _reasoningExpanded,
+              previewChars: _bigTextPreview,
+              onToggle: () => setState(() => _reasoningExpanded = true),
+            ),
+          ]);
+        }
+        if (_reasoning?.isNotEmpty == true) i -= 1;
+        if (_answerText?.isNotEmpty == true && i == 0) {
+          return _detailSection(context, '回答内容（${_answerText!.length} 字符）', [
+            _bigText(
+              _answerText!,
+              expanded: _textExpanded,
+              previewChars: _bigTextPreview,
+              onToggle: () => setState(() => _textExpanded = true),
+            ),
+          ]);
+        }
+        if (_answerText?.isNotEmpty == true) i -= 1;
+        if (i == 0 && _toolCalls.isNotEmpty) {
+          final shown = _toolCallsExpanded ? _toolCalls : _toolCalls.take(8);
+          return _detailSection(context, '工具调用（${_toolCalls.length} 项）', [
+            for (final t in shown)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: SelectableText(
+                  t is Map ? '${t['name']}(${t['arguments']})' : t.toString(),
                 ),
-                const SizedBox(height: 4),
-                SelectableText((m['content'] ?? '').toString()),
-                if (m['tool_calls'] is List)
-                  for (final tc in m['tool_calls'] as List)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: SelectableText(
-                        tc is Map
-                            ? '→ ${tc['name']}(${tc['arguments']})'
-                            : tc.toString(),
-                        style: TextStyle(color: Theme.of(context).colorScheme.tertiary),
-                      ),
-                    ),
-              ],
-            ),
-          ),
-    ];
+              ),
+            if (!_toolCallsExpanded && _toolCalls.length > 8)
+              TextButton(
+                onPressed: () => setState(() => _toolCallsExpanded = true),
+                child: Text('展开全部 ${_toolCalls.length} 项'),
+              ),
+          ]);
+        }
+        return const SizedBox.shrink();
+      },
+    );
   }
 
   Widget _detailSection(BuildContext context, String title, List<Widget> children) {
@@ -415,6 +484,74 @@ class _UsagePageState extends State<UsagePage> {
           Text(title, style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 6),
           ...children,
+        ],
+      ),
+    );
+  }
+
+  /// 大文本渐进展示：超长先给前 previewChars 字符 + 展开按钮。
+  Widget _bigText(
+    String text, {
+    required bool expanded,
+    required int previewChars,
+    required VoidCallback onToggle,
+  }) {
+    if (expanded || text.length <= previewChars) {
+      return SelectableText(text);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SelectableText('${text.substring(0, previewChars)}\n…'),
+        TextButton(
+          onPressed: onToggle,
+          child: Text('展开全部（共 ${text.length} 字符）'),
+        ),
+      ],
+    );
+  }
+
+  /// 单条消息卡：内容超长先截断，点击展开全量渲染。
+  Widget _messageCard(Map<dynamic, dynamic> m, int index) {
+    final theme = Theme.of(context);
+    final content = (m['content'] ?? '').toString();
+    final toolCalls = (m['tool_calls'] is List) ? (m['tool_calls'] as List) : const [];
+    final expanded = _expandedMessages.contains(index);
+    final tooLong = content.length > _messagePreviewChars;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            (m['role'] ?? '').toString().toUpperCase(),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          SelectableText(
+            !tooLong || expanded ? content : '${content.substring(0, _messagePreviewChars)}\n…',
+          ),
+          if (tooLong && !expanded)
+            TextButton(
+              onPressed: () => setState(() => _expandedMessages.add(index)),
+              child: Text('展开全部（共 ${content.length} 字符）'),
+            ),
+          for (final tc in toolCalls)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: SelectableText(
+                tc is Map ? '→ ${tc['name']}(${tc['arguments']})' : tc.toString(),
+                style: TextStyle(color: theme.colorScheme.tertiary),
+              ),
+            ),
         ],
       ),
     );
