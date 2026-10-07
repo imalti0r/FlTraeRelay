@@ -2,10 +2,16 @@
 // 修改写入 config.json；需要"保存并重启后端"才对运行中的服务生效。
 
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../models.dart';
 import '../services/backend.dart';
 import '../widgets.dart';
+
+/// 账号选择策略与日志级别的取值序列（分段控件按索引映射）。
+const _poolStrategies = ['credits', 'expiry', 'roundRobin'];
+const _poolStrategyLabels = ['余额优先', '到期优先', '轮询'];
+const _logLevels = ['trace', 'debug', 'info', 'warn', 'error'];
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.app});
@@ -51,8 +57,9 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 60, 20, 100),
       children: [
+        _appearanceCard(context),
         _serviceCard(context),
         _accountCard(context),
         _cacheCard(context),
@@ -127,6 +134,22 @@ class _SettingsPageState extends State<SettingsPage> {
 
   // ---------- 各分组卡片 ----------
 
+  /// 外观：主题模式（跟随系统 / 浅色 / 深色），持久化到 config.json。
+  Widget _appearanceCard(BuildContext context) {
+    const names = ['system', 'light', 'dark'];
+    const labels = ['跟随系统', '浅色', '深色'];
+    final current = widget.app.themeModeName;
+    final index = names.indexOf(current) < 0 ? 0 : names.indexOf(current);
+    return SectionCard(title: '外观', children: [
+      GlassSegmentedControl(
+        segments: [for (final l in labels) GlassSegment(label: l)],
+        selectedIndex: index,
+        onSegmentSelected: (i) =>
+            setState(() => widget.app.setThemeModeName(names[i])),
+      ),
+    ]);
+  }
+
   Widget _serviceCard(BuildContext context) {
     return SectionCard(title: '服务', children: [
       Row(
@@ -152,6 +175,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Widget _accountCard(BuildContext context) {
+    final strategyIndex = _poolStrategies.indexOf(cfg.poolSelectBy);
     return SectionCard(title: '账号与签到', children: [
       _switchRow('自动发现账号', '启动时扫描当前 Windows 用户已登录的 Trae', cfg.accountsAutoDiscover,
           (v) => setState(() => cfg.accountsAutoDiscover = v)),
@@ -174,14 +198,12 @@ class _SettingsPageState extends State<SettingsPage> {
         runSpacing: 8,
         children: [
           const Text('账号选择策略'),
-          SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: 'credits', label: Text('余额优先')),
-              ButtonSegment(value: 'expiry', label: Text('到期优先')),
-              ButtonSegment(value: 'roundRobin', label: Text('轮询')),
+          GlassSegmentedControl(
+            segments: [
+              for (final label in _poolStrategyLabels) GlassSegment(label: label),
             ],
-            selected: {cfg.poolSelectBy},
-            onSelectionChanged: (s) => setState(() => cfg.poolSelectBy = s.first),
+            selectedIndex: strategyIndex < 0 ? 0 : strategyIndex,
+            onSegmentSelected: (i) => setState(() => cfg.poolSelectBy = _poolStrategies[i]),
           ),
         ],
       ),
@@ -198,6 +220,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Widget _loggingCard(BuildContext context) {
+    final levelIndex = _logLevels.indexOf(cfg.logLevel);
     return SectionCard(title: '日志', children: [
       _switchRow('启用日志', '关闭后不再写 logs/ 目录', cfg.loggingEnabled, (v) => setState(() => cfg.loggingEnabled = v)),
       const SizedBox(height: 12),
@@ -207,16 +230,16 @@ class _SettingsPageState extends State<SettingsPage> {
         runSpacing: 8,
         children: [
           const Text('日志级别'),
-          SegmentedButton<String>(
+          GlassSegmentedControl(
             segments: const [
-              ButtonSegment(value: 'trace', label: Text('Trace')),
-              ButtonSegment(value: 'debug', label: Text('Debug')),
-              ButtonSegment(value: 'info', label: Text('Info')),
-              ButtonSegment(value: 'warn', label: Text('Warn')),
-              ButtonSegment(value: 'error', label: Text('Error')),
+              GlassSegment(label: 'Trace'),
+              GlassSegment(label: 'Debug'),
+              GlassSegment(label: 'Info'),
+              GlassSegment(label: 'Warn'),
+              GlassSegment(label: 'Error'),
             ],
-            selected: {cfg.logLevel},
-            onSelectionChanged: (s) => setState(() => cfg.logLevel = s.first),
+            selectedIndex: levelIndex < 0 ? 2 : levelIndex,
+            onSegmentSelected: (i) => setState(() => cfg.logLevel = _logLevels[i]),
           ),
         ],
       ),
@@ -257,7 +280,12 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
         ),
-        Switch(value: value, onChanged: onChanged),
+        const SizedBox(width: 12),
+        GlassSwitch(
+          value: value,
+          activeColor: Theme.of(context).colorScheme.primary,
+          onChanged: onChanged,
+        ),
       ],
     );
   }

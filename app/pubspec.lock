@@ -160,6 +160,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.1.0"
+  liquid_glass_widgets:
+    dependency: "direct main"
+    description:
+      name: liquid_glass_widgets
+      sha256: ea34502c801b7cca96c5bd4848c7169dda3163b0c32752d3a39964e5a45ff6f2
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.10.0"
   matcher:
     dependency: transitive
     description:

@@ -1,6 +1,7 @@
 // usage_page.dart - 使用记录：按日期浏览进程内使用记录，展示汇总与明细。
 
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../services/backend.dart';
 import '../widgets.dart';
@@ -29,38 +30,42 @@ class _UsagePageState extends State<UsagePage> {
     }
 
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 60, 20, 100),
       children: [
         Row(
           children: [
-            IconButton(
-              tooltip: '前一天',
-              icon: const Icon(Icons.chevron_left),
+            GlassIconButton(
+              icon: const Icon(Icons.chevron_left, size: 22),
               onPressed: () => setState(() => _day = _day.subtract(const Duration(days: 1))),
+              size: 40,
+              semanticLabel: '前一天',
             ),
             TextButton(
               onPressed: () => setState(() => _day = DateTime.now()),
               child: Text(_dateLabel(_day)),
             ),
-            IconButton(
-              tooltip: '后一天',
-              icon: const Icon(Icons.chevron_right),
+            GlassIconButton(
+              icon: const Icon(Icons.chevron_right, size: 22),
               onPressed: _isToday(_day)
                   ? null
                   : () => setState(() => _day = _day.add(const Duration(days: 1))),
+              size: 40,
+              semanticLabel: '后一天',
             ),
             const Spacer(),
-            IconButton(
-              tooltip: '刷新',
-              icon: const Icon(Icons.refresh),
+            GlassIconButton(
+              icon: const Icon(Icons.refresh, size: 20),
               onPressed: () {
                 widget.app.refreshOnce();
                 setState(() {});
               },
+              size: 40,
+              semanticLabel: '刷新',
             ),
           ],
         ),
         const SizedBox(height: 8),
+        // 三张统计卡同一行。
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -70,9 +75,10 @@ class _UsagePageState extends State<UsagePage> {
             const SizedBox(width: 8),
             Expanded(child: StatCard(label: '积分消耗', value: credits.toStringAsFixed(2))),
           ],
-        ),
-        const SizedBox(height: 8),
-        Card(
+        ),        const SizedBox(height: 8),
+        GlassCard(
+          padding: EdgeInsets.zero,
+          shape: const LiquidRoundedSuperellipse(borderRadius: 20),
           child: records.isEmpty
               ? Padding(
                   padding: const EdgeInsets.all(32),
@@ -83,11 +89,30 @@ class _UsagePageState extends State<UsagePage> {
                     ),
                   ),
                 )
-              : Column(
-                  children: [
-                    _headerTile(),
-                    for (final r in records) _recordTile(r),
-                  ],
+              // 窄窗放不下七列表：表头与明细包进同一横向滚动容器保持对齐。
+              // 行内有 Expanded，必须给它有界宽度——窄窗用 660 起步可横滚，
+              // 宽窗拉伸到可用宽度。
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final tableWidth = constraints.maxWidth.isFinite
+                        ? constraints.maxWidth < 660
+                              ? 660.0
+                              : constraints.maxWidth
+                        : 660.0;
+                    return SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SizedBox(
+                        width: tableWidth,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _headerTile(),
+                            for (final r in records) _recordTile(r),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
         ),
       ],
@@ -229,7 +254,8 @@ class _UsagePageState extends State<UsagePage> {
       builder: (context) => AlertDialog(
         title: Text('${_hhmmss(r.ts)} · ${r.model}'),
         content: SizedBox(
-          width: 720,
+          // 窄竖窗下跟随对话框可用宽度，不再固定 720。
+          width: double.maxFinite,
           child: detail == null
               ? Text(
                   '该记录没有保存详情（详情功能在本次更新后才有，或详情文件已被清理）。',

@@ -2,6 +2,7 @@
 // 设置思考强度、Max 模式与启用状态（写入 config.json 的 models.<name> 覆盖项）。
 
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../models.dart';
 import '../services/backend.dart';
@@ -83,26 +84,32 @@ class _ModelsPageState extends State<ModelsPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(20, 60, 20, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('可用模型（${models.length}）', style: theme.textTheme.titleMedium),
-              const SizedBox(width: 16),
-              SizedBox(
-                width: 260,
-                child: TextField(
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search, size: 20),
-                    hintText: '搜索模型',
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('可用模型（${models.length}）',
+                        style: theme.textTheme.titleMedium,
+                        overflow: TextOverflow.ellipsis),
                   ),
+                  GlassIconButton(
+                    icon: const Icon(Icons.refresh, size: 20),
+                    onPressed: app.backendRunning ? () => app.refreshModels() : null,
+                    size: 40,
+                    semanticLabel: '刷新模型目录',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 44,
+                child: GlassSearchBar(
+                  placeholder: '搜索模型',
                   onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
                 ),
-              ),
-              const Spacer(),
-              IconButton(
-                tooltip: '刷新模型目录',
-                icon: const Icon(Icons.refresh),
-                onPressed: app.backendRunning ? () => app.refreshModels() : null,
               ),
             ],
           ),
@@ -128,7 +135,7 @@ class _ModelsPageState extends State<ModelsPage> {
                   ),
                 )
               : ListView(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
                   children: [
                     for (final m in filtered) _modelCard(context, m),
                   ],
@@ -145,43 +152,41 @@ class _ModelsPageState extends State<ModelsPage> {
 
     // 启用状态：覆盖项缺省视为启用
     final enabled = override?['enabled'] is bool ? override!['enabled'] as bool : true;
-    // 思考强度：覆盖值优先；'默认'表示跟随模型目录 default_level
+    // 思考强度：覆盖值优先；'' 表示跟随模型目录 default_level
     final overrideEffort = config?.modelReasoningEffort(m.id);
     final effectiveEffort = overrideEffort ?? '';
     // Max：覆盖值优先，回落 defaults
     final overrideMax = config?.modelIsMaxMode(m.id);
     final maxMode = overrideMax != null ? overrideMax != 0 : config!.isMaxMode != 0;
 
-    final segments = <ButtonSegment<String>>[
-      const ButtonSegment(value: '', label: Text('默认')),
-      for (final o in m.effortOptions) ButtonSegment(value: o, label: Text(_effortLabel(o))),
-    ];
-    // 当前生效档位不在该模型支持列表时，在"默认"档上提示覆盖值不被透传
-    final selected = {if (segments.any((s) => s.value == effectiveEffort)) effectiveEffort else ''};
+    // 分段控件按索引取值：'' 为"默认"档，其余依次对应模型支持的档位
+    final effortValues = <String>['', ...m.effortOptions];
+    final effortSelected = effortValues.indexOf(effectiveEffort);
 
-    return Card(
+    return GlassCard(
       margin: const EdgeInsets.symmetric(vertical: 6),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(m.label, style: theme.textTheme.titleMedium, overflow: TextOverflow.ellipsis),
-                ),
-                if (m.maxMode)
-                  _Tag(label: 'Max', color: theme.colorScheme.primaryContainer, textColor: theme.colorScheme.onPrimaryContainer),
-                if (m.vision)
-                  _Tag(label: '视觉', color: theme.colorScheme.secondaryContainer, textColor: theme.colorScheme.onSecondaryContainer),
-                const SizedBox(width: 8),
-                Switch(
-                  value: enabled,
-                  onChanged: (v) => _apply(m.id, {'enabled': v}),
-                ),
-              ],
-            ),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+      shape: const LiquidRoundedSuperellipse(borderRadius: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(m.label, style: theme.textTheme.titleMedium, overflow: TextOverflow.ellipsis),
+              ),
+              if (m.maxMode)
+                _Tag(label: 'Max', color: theme.colorScheme.primaryContainer, textColor: theme.colorScheme.onPrimaryContainer),
+              if (m.vision)
+                _Tag(label: '视觉', color: theme.colorScheme.secondaryContainer, textColor: theme.colorScheme.onSecondaryContainer),
+              const SizedBox(width: 8),
+              GlassSwitch(
+                value: enabled,
+                activeColor: theme.colorScheme.primary,
+                onChanged: (v) => _apply(m.id, {'enabled': v}),
+              ),
+            ],
+          ),
             const SizedBox(height: 2),
             Text(
               _subtitle(m),
@@ -196,13 +201,15 @@ class _ModelsPageState extends State<ModelsPage> {
                   child: Text('思考强度', style: theme.textTheme.bodyMedium),
                 ),
                 Expanded(
-                  child: m.supportThinking && segments.length > 1
-                      ? SegmentedButton<String>(
-                          segments: segments,
-                          selected: selected,
-                          showSelectedIcon: false,
-                          onSelectionChanged: (s) => _apply(m.id, {
-                            'reasoningEffort': s.first.isEmpty ? null : s.first,
+                  child: m.supportThinking && effortValues.length > 1
+                      ? GlassSegmentedControl(
+                          segments: [
+                            for (final v in effortValues)
+                              GlassSegment(label: v.isEmpty ? '默认' : _effortLabel(v)),
+                          ],
+                          selectedIndex: effortSelected < 0 ? 0 : effortSelected,
+                          onSegmentSelected: (i) => _apply(m.id, {
+                            'reasoningEffort': effortValues[i].isEmpty ? null : effortValues[i],
                           }),
                         )
                       : Text(
@@ -211,16 +218,32 @@ class _ModelsPageState extends State<ModelsPage> {
                               ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                         ),
                 ),
-                const SizedBox(width: 16),
+              ],
+            ),
+            const SizedBox(height: 10),
+            // Max 独立一行右对齐，避免窄窗下与分段控件互相挤压。
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
                 const Text('Max'),
-                Switch(
-                  value: maxMode,
-                  onChanged: m.maxMode ? (v) => _apply(m.id, {'isMaxMode': v ? 1 : 0}) : null,
+                const SizedBox(width: 8),
+                // GlassSwitch 无禁用态：不支持的模型降透明度并吞掉手势。
+                Opacity(
+                  opacity: m.maxMode ? 1 : 0.4,
+                  child: IgnorePointer(
+                    ignoring: !m.maxMode,
+                    child: GlassSwitch(
+                      value: maxMode,
+                      activeColor: theme.colorScheme.primary,
+                      onChanged: m.maxMode
+                          ? (v) => _apply(m.id, {'isMaxMode': v ? 1 : 0})
+                          : (_) {},
+                    ),
+                  ),
                 ),
               ],
             ),
           ],
-        ),
       ),
     );
   }

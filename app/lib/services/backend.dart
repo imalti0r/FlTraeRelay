@@ -521,6 +521,19 @@ class AppState extends ChangeNotifier {
 
   TodayUsage get todayUsage => _pool?.usageToday() ?? TodayUsage();
 
+  /// 主题模式名（system / light / dark），持久化在 config.json 的 ui 节。
+  String get themeModeName {
+    final v = config?.themeMode ?? 'system';
+    return (v == 'light' || v == 'dark') ? v : 'system';
+  }
+
+  void setThemeModeName(String v) {
+    final c = config;
+    if (c == null) return;
+    c.themeMode = v;
+    saveConfig(silent: true);
+  }
+
   List<UsageRow> usageForDay(DateTime day) {
     final pool = _pool;
     if (pool == null) return const [];

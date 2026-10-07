@@ -1,4 +1,4 @@
-#ifndef RUNNER_WIN32_WINDOW_H_
+﻿#ifndef RUNNER_WIN32_WINDOW_H_
 #define RUNNER_WIN32_WINDOW_H_
 
 #include <windows.h>
@@ -71,6 +71,12 @@ class Win32Window {
   // Called when Destroy is called.
   virtual void OnDestroy();
 
+  // 顶层窗口命中测试：边缘缩放区 + 自绘标题栏拖动区（HTCAPTION）。
+  // 父窗口的 WM_NCHITTEST 与 FlutterView 子窗口的穿透判断共用此逻辑；
+  // 无边框后整窗都是 Flutter 子窗口的客户区，父窗口收不到这些消息，
+  // 由子窗口判定命中拖动/缩放区后以 HTTRANSPARENT 穿透回父窗口。
+  LRESULT HitTestFrame(const POINT& pt_screen) noexcept;
+
  private:
   friend class WindowClassRegistrar;
 
@@ -97,6 +103,9 @@ class Win32Window {
 
   // window handle for hosted content.
   HWND child_content_ = nullptr;
+
+  // 创建窗口时所在显示器的缩放系数，供非客户区命中测试换算物理像素。
+  double scale_factor_ = 1.0;
 };
 
 #endif  // RUNNER_WIN32_WINDOW_H_

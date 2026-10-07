@@ -2,6 +2,7 @@
 // 模型列表与模型设置已独立到 models_page.dart。
 
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../models.dart';
 import '../services/backend.dart';
@@ -38,7 +39,7 @@ class _OverviewPageState extends State<OverviewPage> {
   Widget build(BuildContext context) {
     final config = cfg;
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 60, 20, 100),
       children: [
         _backendCard(context),
         if (config == null)
@@ -62,10 +63,10 @@ class _OverviewPageState extends State<OverviewPage> {
       BackendState.stopped => ('已停止', theme.colorScheme.onSurfaceVariant, Icons.stop_circle_outlined),
     };
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-        child: Column(
+    return GlassCard(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      shape: const LiquidRoundedSuperellipse(borderRadius: 20),
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -103,7 +104,6 @@ class _OverviewPageState extends State<OverviewPage> {
             ],
           ],
         ),
-      ),
     );
   }
 
@@ -124,10 +124,11 @@ class _OverviewPageState extends State<OverviewPage> {
                 : const Icon(Icons.verified_outlined, size: 18),
             label: const Text('立即签到'),
           ),
-          IconButton(
-            tooltip: '刷新积分',
-            icon: const Icon(Icons.refresh),
+          GlassIconButton(
+            icon: const Icon(Icons.refresh, size: 20),
             onPressed: app.backendRunning ? () => app.refreshCreditsAll() : null,
+            size: 40,
+            semanticLabel: '刷新积分',
           ),
         ],
       ),
@@ -197,7 +198,14 @@ class _OverviewPageState extends State<OverviewPage> {
                 children: [
                   Row(
                     children: [
-                      Text(a.nickname, style: theme.textTheme.titleMedium),
+                      // Flexible：默认按内容宽度，昵称过长截断，积分紧跟其后。
+                      Flexible(
+                        child: Text(
+                          a.nickname,
+                          style: theme.textTheme.titleMedium,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                       const SizedBox(width: 10),
                       Text(
                         '积分 ${a.credits.toStringAsFixed(2)}',
@@ -233,20 +241,23 @@ class _OverviewPageState extends State<OverviewPage> {
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 16),
           // 操作区：删除 | 启用开关（垂直居中，一行排开）
-          IconButton(
-            tooltip: a.disabled ? '删除该账号' : '先停用后才能删除',
+          const SizedBox(width: 8),
+          GlassIconButton(
             icon: Icon(
               Icons.delete_outline,
-              size: 20,
-              color: a.disabled ? theme.colorScheme.error : theme.colorScheme.outline,
+              size: 18,
+              color: a.disabled ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant,
             ),
             onPressed: a.disabled ? () => _confirmDelete(a) : null,
+            size: 36,
+            semanticLabel: a.disabled ? '删除该账号' : '先停用后才能删除',
           ),
-          const SizedBox(width: 4),
-          Switch(
+          const SizedBox(width: 8),
+          GlassSwitch(
             value: !a.disabled,
+            activeColor: theme.colorScheme.primary,
             onChanged: (on) => widget.app.setAccountDisabled(a.id, !on),
           ),
         ],
@@ -292,6 +303,7 @@ class _OverviewPageState extends State<OverviewPage> {
 
   Widget _todayStats(BuildContext context) {
     final today = app.todayUsage;
+    // 三张统计卡同一行。
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -317,8 +329,10 @@ class _OverviewPageState extends State<OverviewPage> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const Text('任意 Key'),
-        Switch(
+        const SizedBox(width: 8),
+        GlassSwitch(
           value: config.allowAnyApiKey,
+          activeColor: Theme.of(context).colorScheme.primary,
           onChanged: (v) => _apply(() async => config.allowAnyApiKey = v),
         ),
       ],
@@ -332,11 +346,13 @@ class _OverviewPageState extends State<OverviewPage> {
           label: '密钥',
           value: config.apiKey,
           suffix: [
-            IconButton(
-              tooltip: '重新生成密钥',
-              icon: const Icon(Icons.autorenew),
+            GlassIconButton(
+              icon: const Icon(Icons.autorenew, size: 18),
               onPressed: () => _apply(() => app.regenerateApiKey()),
+              size: 36,
+              semanticLabel: '重新生成密钥',
             ),
+            const SizedBox(width: 8),
             anyKeySwitch,
           ],
         ),

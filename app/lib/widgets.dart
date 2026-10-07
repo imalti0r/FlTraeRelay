@@ -1,9 +1,10 @@
-// widgets.dart - 页面共用的小组件：区块卡片、统计卡、可复制字段行。
+// widgets.dart - 页面共用的小组件：玻璃区块卡片、玻璃统计卡、可复制字段行。
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
-/// 带标题的区块卡片（对应原 GUI 的"当前账号/本地端点/模型设置"卡）。
+/// 带标题的玻璃区块卡片（对应原 GUI 的"当前账号/本地端点/模型设置"卡）。
 class SectionCard extends StatelessWidget {
   const SectionCard({super.key, required this.title, required this.children, this.trailing});
 
@@ -14,29 +15,29 @@ class SectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text(title, style: theme.textTheme.titleMedium),
-            const Spacer(),
-            ?trailing,
-              ],
-            ),
-            const SizedBox(height: 12),
-            ...children,
-          ],
-        ),
+    return GlassCard(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      shape: const LiquidRoundedSuperellipse(borderRadius: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(title, style: theme.textTheme.titleMedium),
+              const Spacer(),
+              ?trailing,
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...children,
+        ],
       ),
     );
   }
 }
 
-/// 统计卡：标签 + 大数字。
+/// 玻璃统计卡：标签 + 大数字。
 class StatCard extends StatelessWidget {
   const StatCard({super.key, required this.label, required this.value});
 
@@ -46,18 +47,17 @@ class StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(label, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-            const SizedBox(height: 4),
-            Text(value, style: theme.textTheme.headlineSmall),
-          ],
-        ),
+    return GlassCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      shape: const LiquidRoundedSuperellipse(borderRadius: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          const SizedBox(height: 4),
+          Text(value, style: theme.textTheme.headlineSmall),
+        ],
       ),
     );
   }
@@ -103,12 +103,12 @@ class _CopyFieldState extends State<CopyField> {
             obscureText: widget.obscure,
             controller: _controller,
             style: Theme.of(context).textTheme.bodyMedium,
-            decoration: const InputDecoration(border: OutlineInputBorder()),
+            decoration: const InputDecoration(),
           ),
         ),
-        IconButton(
-          tooltip: '复制',
-          icon: const Icon(Icons.copy_outlined),
+        const SizedBox(width: 8),
+        GlassIconButton(
+          icon: const Icon(Icons.copy_outlined, size: 18),
           onPressed: () async {
             await Clipboard.setData(ClipboardData(text: widget.value));
             if (context.mounted) {
@@ -117,8 +117,13 @@ class _CopyFieldState extends State<CopyField> {
                 ..showSnackBar(SnackBar(content: Text('已复制${widget.label}')));
             }
           },
+          size: 36,
+          semanticLabel: '复制',
         ),
-        ...?widget.suffix,
+        if (widget.suffix != null) ...[
+          const SizedBox(width: 8),
+          ...widget.suffix!,
+        ],
       ],
     );
   }

@@ -50,6 +50,10 @@ class RelayConfig {
   bool get closeToTray => _bool('startup', 'closeToTray', false);
   set closeToTray(bool v) => _section('startup')['closeToTray'] = v;
 
+  // ---------- ui（仅前端使用：themeMode = system / light / dark） ----------
+  String get themeMode => _str('ui', 'themeMode', 'system');
+  set themeMode(String v) => _section('ui')['themeMode'] = v;
+
   // ---------- 账号管理 ----------
   /// 停用的账号 id 列表（id = "edition:userId"）。停用不删除发现记录。
   List<String> get disabledAccounts {

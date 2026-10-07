@@ -581,7 +581,9 @@ class AccountPool implements AccountProvider {
     _ensureUsageDir();
     _usageCache.insert(0, r);
     final day = DateTime(r.ts.year, r.ts.month, r.ts.day);
-    if (day.isAfter(_usageTodayStart) && day.isBefore(_usageTodayEnd)) {
+    // 注意用 !isBefore 而非 isAfter：day == start（今天 00:00 起）必须计入，
+    // 严格大于会把跨天后当天的所有增量记录全部漏掉（统计永远 0）。
+    if (!day.isBefore(_usageTodayStart) && day.isBefore(_usageTodayEnd)) {
       _usageTodayCount += 1;
       _usageTodayTokens += r.input + r.output;
       if (r.creditsKnown) _usageTodayCredits += r.creditsDelta;
@@ -715,6 +717,10 @@ class AccountPool implements AccountProvider {
       _usageTodayCount = 0;
       _usageTodayTokens = 0;
       _usageTodayCredits = 0;
+      // 跨天后必须重读磁盘：_usageCache 只含启动时已存在的记录，
+      // 新一天的 jsonl 文件是运行期间新建的，不重读就永远统计不到。
+      _usageCacheLoaded = false;
+      _usageCache.clear();
       _ensureUsageCache();
       for (final r in _usageCache) {
         if (!r.ts.isBefore(todayStart) && r.ts.isBefore(todayEnd)) {
