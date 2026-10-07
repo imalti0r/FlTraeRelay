@@ -18,7 +18,7 @@ class UsagePage extends StatefulWidget {
 class _UsagePageState extends State<UsagePage> {
   DateTime _day = DateTime.now();
   int _page = 0;
-  static const _pageSize = 15;
+  static const _pageSize = 14;
 
   @override
   Widget build(BuildContext context) {
