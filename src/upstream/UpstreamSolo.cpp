@@ -211,7 +211,6 @@ UpResult upstreamSolo(const UpRequest& req, Account& acc, const ModelCaps& caps,
         }
         ~QueueScope() { set(false); }
     } queue{acc};
-    std::string lastResp, lastReason;
     // 原生 function calling：上游 tool_calls 为流式增量（首帧 id/name，
     // 后续帧按 index 追加 arguments 片段）。先按 index 累积，done 时一次性
     // 下发完整调用，与下游"完整工具事件"语义对齐。
@@ -346,7 +345,8 @@ UpResult upstreamSolo(const UpRequest& req, Account& acc, const ModelCaps& caps,
                     }
                 }
             }
-            // 文本：新格式 content（增量） / 旧格式 response（累计快照）
+            // 文本：content / response 均为增量（上游实测确认）；重复片段也是
+            // 正文的一部分（如连续两个 /my），不能按累计快照去重。
             const Json* txt = data.find("content");
             if (txt && txt->isString() && !txt->asString().empty()) {
                 UpEvent e;
@@ -356,15 +356,12 @@ UpResult upstreamSolo(const UpRequest& req, Account& acc, const ModelCaps& caps,
             }
             txt = data.find("response");
             if (txt && txt->isString() && !txt->asString().empty()) {
-                std::string delta;
-                if (snapshotDelta(lastResp, txt->asString(), delta)) {
-                    UpEvent e;
-                    e.type = UpEvent::Text;
-                    e.text = delta;
-                    if (!emit(e)) return false;
-                }
+                UpEvent e;
+                e.type = UpEvent::Text;
+                e.text = txt->asString();
+                if (!emit(e)) return false;
             }
-            // 思考：reasoning（增量） / reasoning_content（快照）
+            // reasoning / reasoning_content 同样为增量，保持上游分片原文。
             const Json* rs = data.find("reasoning");
             if (rs && rs->isString() && !rs->asString().empty()) {
                 UpEvent e;
@@ -374,13 +371,10 @@ UpResult upstreamSolo(const UpRequest& req, Account& acc, const ModelCaps& caps,
             }
             rs = data.find("reasoning_content");
             if (rs && rs->isString() && !rs->asString().empty()) {
-                std::string delta;
-                if (snapshotDelta(lastReason, rs->asString(), delta)) {
-                    UpEvent e;
-                    e.type = UpEvent::Reason;
-                    e.text = delta;
-                    if (!emit(e)) return false;
-                }
+                UpEvent e;
+                e.type = UpEvent::Reason;
+                e.text = rs->asString();
+                if (!emit(e)) return false;
             }
         }
         return true;
